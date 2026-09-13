@@ -1,0 +1,67 @@
+# Python & Virtualenv
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/venv/
+venv/
+.venv/
+test_venv/
+.pytest_cache/
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+food_waste.db
+backend/food_waste.db
+
+# Node & Next.js
+frontend/node_modules/
+node_modules/
+frontend/.next/
+.next/
+frontend/out/
+frontend/build/
+dist/
+build/
+.DS_Store
+Thumbs.db
+*.pem
+*.key
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# AI Weights & Models
+*.pt
+*.pth
+*.onnx
+*.bin
+*.engine
+ai/weights/
+
+# Datasets & Archives
+datasets/
+dataset/
+*.zip
+*.tar.gz
+*.tgz
+*.rar
+
+# Uploads runtime artifacts
+uploads/*
+!uploads/.gitkeep
+backend/uploads/*
+!backend/uploads/.gitkeep
+
