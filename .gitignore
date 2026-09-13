@@ -50,6 +50,8 @@ pnpm-debug.log*
 *.bin
 *.engine
 ai/weights/
+runs/
+
 
 # Datasets & Archives
 datasets/
