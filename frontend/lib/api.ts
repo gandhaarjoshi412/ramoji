@@ -35,6 +35,13 @@ export async function apiRequest<T>(
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
+    if (res.status === 401 && typeof window !== "undefined") {
+      localStorage.removeItem("token");
+      document.cookie = "token=; path=/; max-age=0; SameSite=Lax";
+      if (window.location.pathname !== "/login") {
+        window.location.href = "/login";
+      }
+    }
     const errorMsg = data?.detail || res.statusText || "Request failed";
     throw new ApiError(errorMsg, res.status);
   }

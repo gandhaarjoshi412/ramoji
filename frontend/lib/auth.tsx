@@ -31,6 +31,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser(me);
       } catch (err) {
         localStorage.removeItem("token");
+        if (typeof document !== "undefined") {
+          document.cookie = "token=; path=/; max-age=0; SameSite=Lax";
+        }
         setUser(null);
       } finally {
         setLoading(false);
@@ -45,12 +48,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       body: JSON.stringify({ email, password: pass }),
     });
     localStorage.setItem("token", res.access_token);
+    if (typeof document !== "undefined") {
+      document.cookie = `token=${res.access_token}; path=/; max-age=86400; SameSite=Lax`;
+    }
     setUser(res.user);
     router.push("/dashboard");
   };
 
   const logout = () => {
     localStorage.removeItem("token");
+    if (typeof document !== "undefined") {
+      document.cookie = "token=; path=/; max-age=0; SameSite=Lax";
+    }
     setUser(null);
     router.push("/login");
   };

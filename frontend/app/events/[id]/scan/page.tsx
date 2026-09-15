@@ -152,9 +152,11 @@ export default function WasteScannerPage() {
       });
 
       setScanResult(scan);
-      setCorrectedFoodId(scan.final_food_id || "");
-      setCorrectedWeight(String(scan.final_weight_kg || scan.estimated_weight_kg));
-      setCorrectionNotes(scan.correction_notes || "");
+      setCorrectedFoodId(scan.final_food_id || scan.food_item_id || "");
+      const initialWeight = scan.final_weight_kg || scan.estimated_weight_kg || 
+        (scan.final_weight_grams ? scan.final_weight_grams / 1000 : (scan.estimated_weight_grams ? scan.estimated_weight_grams / 1000 : 0));
+      setCorrectedWeight(String(initialWeight));
+      setCorrectionNotes(scan.correction_notes || scan.notes || "");
       setStage("result");
     } catch (err: any) {
       setErrorMessage(err.message || "Failed to process scan inference.");
@@ -436,7 +438,7 @@ export default function WasteScannerPage() {
                   Measured Waste Weight
                 </span>
                 <span className="text-xl font-bold text-rose-600">
-                  {scanResult.final_weight_kg || scanResult.estimated_weight_kg} kg
+                  {scanResult.final_weight_kg ?? scanResult.estimated_weight_kg ?? ((scanResult.final_weight_grams || scanResult.estimated_weight_grams || 0) / 1000).toFixed(2)} kg
                 </span>
               </div>
 
@@ -445,7 +447,7 @@ export default function WasteScannerPage() {
                   Est. Waste Cost Loss
                 </span>
                 <span className="text-xl font-bold text-slate-900">
-                  {formatINR(scanResult.estimated_cost)}
+                  {formatINR(scanResult.estimated_cost ?? scanResult.final_waste_cost ?? scanResult.estimated_waste_cost ?? 0)}
                 </span>
               </div>
 
@@ -454,7 +456,7 @@ export default function WasteScannerPage() {
                   Food Density
                 </span>
                 <span className="text-xl font-bold text-slate-700">
-                  {scanResult.density_factor} kg/L
+                  {scanResult.density_factor ?? 0.85} kg/L
                 </span>
               </div>
 
@@ -520,7 +522,7 @@ export default function WasteScannerPage() {
                 >
                   {catalog.map((food) => (
                     <option key={food.id} value={food.id}>
-                      {food.name} ({food.category}) — ₹{food.cost_per_kg}/kg
+                      {food.name} ({food.category}) — ₹{food.cost_per_kg || food.default_cost_per_kg}/kg
                     </option>
                   ))}
                 </select>

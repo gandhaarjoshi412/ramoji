@@ -63,6 +63,12 @@ def build_scan_response(scan: WasteScan) -> WasteScanResponse:
         final_food_name=scan.final_food_name,
         final_weight_grams=scan.final_weight_grams,
         final_waste_cost=scan.final_waste_cost,
+        final_food_id=scan.food_item_id,
+        final_weight_kg=round(scan.final_weight_grams / 1000.0, 2),
+        estimated_weight_kg=round(scan.estimated_weight_grams / 1000.0, 2),
+        estimated_cost=scan.final_waste_cost or scan.estimated_waste_cost,
+        density_factor=0.85,
+        correction_notes=scan.notes or scan.human_food_correction,
     )
 
 @router.get("/api/scans/training-dataset", response_model=List[TrainingDataExportItem])
@@ -282,22 +288,41 @@ def verify_or_correct_scan(
 
     scan.human_verified = True
 
-    if payload.food_item_id is not None:
-        scan.food_item_id = payload.food_item_id
-        food = db.query(FoodItem).filter(FoodItem.id == payload.food_item_id).first()
+    target_food_id = payload.final_food_id if payload.final_food_id is not None else payload.food_item_id
+    if target_food_id is not None:
+        scan.food_item_id = target_food_id
+        food = db.query(FoodItem).filter(FoodItem.id == target_food_id).first()
         if food:
             scan.human_food_correction = food.name
             scan.cost_per_gram = FoodCostService.get_cost_per_gram_for_food(db, food)
     elif payload.human_food_correction:
         scan.human_food_correction = payload.human_food_correction.strip()
 
-    if payload.human_weight_correction is not None:
-        scan.human_weight_correction = payload.human_weight_correction
-        scan.human_cost_correction = round(payload.human_weight_correction * scan.cost_per_gram, 2)
+    target_weight_g = None
+    if payload.final_weight_kg is not None:
+        target_weight_g = payload.final_weight_kg * 1000.0
+    elif payload.human_weight_correction is not None:
+        target_weight_g = payload.human_weight_correction
 
-    if payload.notes is not None:
-        scan.notes = payload.notes.strip()
+    if target_weight_g is not None:
+        scan.human_weight_correction = target_weight_g
+        scan.human_cost_correction = round(target_weight_g * scan.cost_per_gram, 2)
+
+    note_text = payload.correction_notes if payload.correction_notes is not None else payload.notes
+    if note_text is not None:
+        scan.notes = note_text.strip()
 
     db.commit()
     db.refresh(scan)
     return build_scan_response(scan)
+
+@router.put("/api/events/{event_id}/scans/{id}", response_model=WasteScanResponse)
+def update_event_scan(
+    event_id: int,
+    id: int,
+    payload: WasteScanVerifyRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return verify_or_correct_scan(id=id, payload=payload, current_user=current_user, db=db)
+

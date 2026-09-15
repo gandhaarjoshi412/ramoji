@@ -5,6 +5,7 @@ from typing import List, Dict
 from app.database import get_db
 from app.models.user import User
 from app.models.event import Event
+from app.models.event_food import EventFood
 from app.models.waste_scan import WasteScan
 from app.schemas.dashboard import (
     DashboardSummaryResponse,
@@ -36,6 +37,14 @@ def get_dashboard_summary(
     active_events = sum(1 for e in events if e.status == "Active")
     upcoming_events = sum(1 for e in events if e.status == "Upcoming")
     total_guests_served = sum(e.actual_guests for e in events if e.actual_guests)
+
+    all_event_foods = (
+        db.query(EventFood)
+        .join(Event, EventFood.event_id == Event.id)
+        .filter(Event.hotel_id == current_user.hotel_id)
+        .all()
+    )
+    total_food_prepared_kg = round(sum(float(ef.prepared_weight_kg or 0.0) for ef in all_event_foods), 2)
 
     all_scans = (
         db.query(WasteScan)
@@ -99,6 +108,7 @@ def get_dashboard_summary(
                 event_name=ev.name,
                 event_date=str(ev.event_date),
                 event_type=ev.event_type,
+                status=ev.status or "Completed",
                 actual_guests=ev.actual_guests,
                 total_waste_kg=ev_kg,
                 total_waste_cost=round(ev_cost, 2),
@@ -123,6 +133,8 @@ def get_dashboard_summary(
         upcoming_events=upcoming_events,
         total_scans=total_scans,
         total_guests_served=total_guests_served,
+        total_food_prepared_kg=total_food_prepared_kg,
+        total_prepared_kg=total_food_prepared_kg,
         total_estimated_waste_kg=total_waste_kg, total_waste_kg=total_waste_kg,
         total_estimated_waste_cost=round(total_waste_cost, 2), total_waste_cost=round(total_waste_cost, 2),
         average_waste_per_guest_grams=avg_waste_per_guest_grams,

@@ -49,6 +49,7 @@ export interface FoodItem {
   category: string;
   default_unit: string;
   default_cost_per_kg: number;
+  cost_per_kg?: number;
   density_g_per_cm3: number;
   default_depth_cm: number;
   portion_scaling_factor: number;
@@ -85,6 +86,13 @@ export interface WasteScan {
   final_food_name: string;
   final_weight_grams: number;
   final_waste_cost: number;
+  // Compatibility & convenience aliases:
+  final_food_id?: number;
+  final_weight_kg?: number;
+  estimated_weight_kg?: number;
+  estimated_cost?: number;
+  density_factor?: number;
+  correction_notes?: string;
 }
 
 export interface EventFood {
@@ -141,6 +149,7 @@ export interface WasteByEventItem {
   event_name: string;
   event_date: string;
   event_type: string;
+  status?: string;
   actual_guests: number;
   total_waste_kg: number;
   total_waste_cost: number;
@@ -161,6 +170,7 @@ export interface DashboardSummary {
   upcoming_events: number;
   total_scans: number;
   total_guests_served: number;
+  total_food_prepared_kg?: number;
   total_prepared_kg?: number;
   total_estimated_waste_kg: number;
   total_waste_kg?: number;

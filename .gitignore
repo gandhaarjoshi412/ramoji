@@ -49,8 +49,11 @@ pnpm-debug.log*
 *.onnx
 *.bin
 *.engine
-ai/weights/
+ai/weights/*
 runs/
+yolo26_weights/
+!best.pt
+!ai/weights/yolo26-seg.pt
 
 
 # Datasets & Archives

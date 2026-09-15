@@ -7,6 +7,10 @@ class WasteScanVerifyRequest(BaseModel):
     human_food_correction: Optional[str] = Field(None, description="Corrected food name if AI misclassified")
     human_weight_correction: Optional[float] = Field(None, ge=0.0, description="Corrected weight in grams")
     notes: Optional[str] = None
+    # Aliases
+    final_food_id: Optional[int] = None
+    final_weight_kg: Optional[float] = None
+    correction_notes: Optional[str] = None
 
 class WasteScanResponse(BaseModel):
     id: int
@@ -45,6 +49,14 @@ class WasteScanResponse(BaseModel):
     final_food_name: str
     final_weight_grams: float
     final_waste_cost: float
+
+    # Convenience / Frontend Aliases
+    final_food_id: Optional[int] = None
+    final_weight_kg: Optional[float] = None
+    estimated_weight_kg: Optional[float] = None
+    estimated_cost: Optional[float] = None
+    density_factor: Optional[float] = None
+    correction_notes: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -13,6 +13,7 @@ class WasteByEventItem(BaseModel):
     event_name: str
     event_date: str
     event_type: str
+    status: str = "Completed"
     actual_guests: int
     total_waste_kg: float
     total_waste_cost: float
@@ -32,6 +33,8 @@ class DashboardSummaryResponse(BaseModel):
     total_scans: int
     total_guests_served: int
     
+    total_food_prepared_kg: float = 0.0
+    total_prepared_kg: float = 0.0
     total_estimated_waste_kg: float
     total_waste_kg: float = 0.0  # Alias for backward compatibility
     total_estimated_waste_cost: float
