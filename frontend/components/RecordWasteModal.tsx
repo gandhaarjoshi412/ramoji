@@ -50,7 +50,6 @@ export const RecordWasteModal: React.FC<RecordWasteModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Real-time dynamic calculation
   const gross = parseFloat(grossInput) || 0;
   const container = parseFloat(containerInput) || 0;
   const netLeftover = gross > 0 ? Math.max(0, Math.round((gross - container) * 1000) / 1000) : 0;
@@ -99,7 +98,6 @@ export const RecordWasteModal: React.FC<RecordWasteModalProps> = ({
         }),
       });
 
-      // Reset form
       setGrossInput("");
       setContainerInput("0");
       setNotes("");
@@ -113,204 +111,161 @@ export const RecordWasteModal: React.FC<RecordWasteModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 sm:p-8 relative transition-all">
-        {/* Close Button */}
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+      <div className="hotel-card bg-white max-w-lg w-full p-6 sm:p-7 relative shadow-2xl">
         <button
           onClick={onClose}
-          className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100"
+          className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 p-1 rounded-md hover:bg-slate-100 transition-colors"
         >
           <X className="w-5 h-5" />
         </button>
 
-        {/* Modal Header */}
-        <div className="flex items-center space-x-3 mb-6">
-          <div className="w-12 h-12 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shadow-xs">
-            <Scale className="w-6 h-6" />
+        <div className="flex items-center space-x-3 mb-5">
+          <div className="w-10 h-10 rounded-xl bg-amber-50 text-[#b48324] flex items-center justify-center border border-amber-200">
+            <Scale className="w-5 h-5 text-[#b48324]" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-slate-900">Record Food Waste</h2>
-            <p className="text-xs text-slate-500">
-              Measure leftovers on kitchen scale and input readings
+            <h2 className="font-serif text-lg font-bold text-slate-900">Record Food Waste Scale Log</h2>
+            <p className="text-xs text-slate-500 font-normal">
+              Tare kitchen scale and record verified leftover weight
             </p>
           </div>
         </div>
 
         {error && (
-          <div className="mb-5 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-start gap-2">
-            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+          <div className="mb-4 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Food Item Selection */}
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-              1. Select Prepared Food Item
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1">
+              Select Food Dish
             </label>
             <select
               value={selectedFoodId}
               onChange={(e) => setSelectedFoodId(Number(e.target.value))}
               required
-              className="w-full h-11 px-3.5 rounded-lg border border-slate-300 bg-white text-slate-900 font-medium focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+              className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 font-medium text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 cursor-pointer"
             >
               {foods.map((food) => (
                 <option key={food.id} value={food.id}>
-                  {food.food_item_name} ({food.food_item_category}) — {food.prepared_weight_kg} kg prepared (₹{food.estimated_cost_per_kg}/kg)
+                  {food.food_item_name} ({food.food_item_category}) — {food.prepared_weight_kg} kg (₹{food.estimated_cost_per_kg}/kg)
                 </option>
               ))}
             </select>
           </div>
 
-          {/* Weight Source Provider Indicator */}
-          <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 flex items-center justify-between text-xs text-slate-600">
-            <span className="flex items-center gap-1.5 font-medium">
-              <Scale className="w-4 h-4 text-emerald-600" />
-              Weight Source:
-            </span>
-            <span className="font-semibold text-emerald-800 bg-emerald-100/70 px-2 py-0.5 rounded">
-              ManualScaleProvider (Electronic Scale)
-            </span>
-          </div>
-
-          {/* Weight Inputs (Side by side with large fonts) */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                Gross Weight (kg)
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1">
+                Gross Scale Weight (kg)
               </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="0.05"
-                  min="0"
-                  placeholder="e.g. 18.6"
-                  value={grossInput}
-                  onChange={(e) => setGrossInput(e.target.value)}
-                  required
-                  autoFocus
-                  className="w-full text-xl font-bold h-12 px-3 rounded-lg border border-slate-300 text-slate-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                />
-                <span className="absolute right-3 top-3 text-slate-400 text-sm font-semibold">kg</span>
-              </div>
-              <p className="text-[11px] text-slate-400 mt-1">Food + container on scale</p>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                required
+                placeholder="e.g. 5.80"
+                value={grossInput}
+                onChange={(e) => setGrossInput(e.target.value)}
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs font-bold focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
+              />
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                Container / Tare (kg)
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1">
+                Tare / Pan Tare (kg)
               </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="0.05"
-                  min="0"
-                  placeholder="e.g. 3.1"
-                  value={containerInput}
-                  onChange={(e) => setContainerInput(e.target.value)}
-                  required
-                  className={`w-full text-xl font-bold h-12 px-3 rounded-lg border text-slate-900 focus:ring-2 focus:ring-emerald-500 ${
-                    isTareInvalid ? "border-red-400 bg-red-50" : "border-slate-300"
-                  }`}
-                />
-                <span className="absolute right-3 top-3 text-slate-400 text-sm font-semibold">kg</span>
-              </div>
-              <p className="text-[11px] text-slate-400 mt-1">Empty vessel weight</p>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                required
+                placeholder="e.g. 0.80"
+                value={containerInput}
+                onChange={(e) => setContainerInput(e.target.value)}
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs font-bold focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
+              />
             </div>
           </div>
 
-          {/* Real-time Net Leftover Display Banner */}
-          <div
-            className={`p-4 rounded-xl border transition-all ${
-              isTareInvalid
-                ? "bg-red-50 border-red-200 text-red-800"
-                : netLeftover > 0
-                ? "bg-emerald-50 border-emerald-200 text-emerald-950"
-                : "bg-slate-50 border-slate-200 text-slate-700"
-            }`}
-          >
-            <div className="flex justify-between items-center">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wider opacity-80">
-                  Calculated Net Leftover
-                </div>
-                <div className="text-2xl font-black tracking-tight">
-                  {netLeftover.toFixed(2)} <span className="text-base font-bold">kg</span>
-                </div>
-              </div>
-              {currentFood && netLeftover > 0 && (
-                <div className="text-right">
-                  <div className="text-xs font-semibold uppercase tracking-wider opacity-80">
-                    Est. Waste Loss
-                  </div>
-                  <div className="text-xl font-black text-red-700">
-                    ₹{estimatedWasteCost.toLocaleString("en-IN")}
-                  </div>
-                </div>
-              )}
+          {/* Dynamic Net & Cost Preview */}
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Net Leftover</span>
+              <strong className="text-base text-rose-600 font-bold">{netLeftover} kg</strong>
             </div>
-            {isTareInvalid && (
-              <p className="text-xs text-red-600 mt-1 font-medium">
-                Container weight cannot be higher than gross weight!
-              </p>
-            )}
+            <div className="text-right">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Estimated Loss</span>
+              <strong className="text-base text-slate-900 font-bold">₹{estimatedWasteCost}</strong>
+            </div>
           </div>
 
-          {/* Waste Reason */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-              Waste Reason
-            </label>
-            <select
-              value={wasteReason}
-              onChange={(e) => setWasteReason(e.target.value)}
-              className="w-full h-11 px-3 rounded-lg border border-slate-300 bg-white text-slate-900 font-medium focus:ring-2 focus:ring-emerald-500"
-            >
-              {WASTE_REASONS.map((reason) => (
-                <option key={reason} value={reason}>
-                  {reason}
-                </option>
-              ))}
-            </select>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1">
+                Waste Reason
+              </label>
+              <select
+                value={wasteReason}
+                onChange={(e) => setWasteReason(e.target.value)}
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 font-medium text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 cursor-pointer"
+              >
+                {WASTE_REASONS.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1">
+                Scale Type
+              </label>
+              <select
+                value={weightSource}
+                onChange={(e) => setWeightSource(e.target.value)}
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 font-medium text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 cursor-pointer"
+              >
+                <option value="Manual">Manual Entry</option>
+                <option value="BluetoothScale">Bluetooth Scale</option>
+                <option value="KitchenScale">Kitchen Bench Scale</option>
+              </select>
+            </div>
           </div>
 
-          {/* Optional Notes */}
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-              Operational Notes (Optional)
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1">
+              Audit Notes
             </label>
             <input
               type="text"
-              placeholder="e.g. Leftover from live counter buffet"
+              placeholder="e.g. End of service clearing; 2 platters partially untouched."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="w-full h-10 px-3 rounded-lg border border-slate-300 text-slate-800 text-sm focus:ring-2 focus:ring-emerald-500"
+              className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
             />
           </div>
 
-          {/* Submit and Cancel Buttons */}
-          <div className="flex items-center justify-end space-x-3 pt-2">
+          <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 rounded-lg border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-50 transition-colors"
+              className="hotel-btn-secondary text-xs"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={loading || isTareInvalid || gross <= 0}
-              className="px-6 py-2.5 rounded-lg bg-emerald-600 text-white text-sm font-bold shadow-md hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+              disabled={loading || isTareInvalid}
+              className="hotel-btn-gold text-xs"
             >
-              {loading ? (
-                "Saving..."
-              ) : (
-                <>
-                  <Check className="w-4 h-4" />
-                  Save Waste Record
-                </>
-              )}
+              <Check className="w-3.5 h-3.5" />
+              {loading ? "Recording..." : "Log Waste Measurement"}
             </button>
           </div>
         </form>

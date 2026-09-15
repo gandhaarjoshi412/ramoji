@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { apiRequest, formatINR } from "@/lib/api";
 import { Ingredient } from "@/types";
-import { Layers, PlusCircle, Edit3 } from "lucide-react";
+import { Edit3, Check, X } from "lucide-react";
 
 export default function IngredientsPage() {
   const { user } = useAuth();
@@ -45,23 +45,28 @@ export default function IngredientsPage() {
     <div className="space-y-6 pb-16">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-            Raw Ingredients & Purchase Pricing
-          </h1>
-          <p className="text-sm text-slate-500 font-medium mt-1">
-            Baseline ingredient procurement rates used to dynamically calculate recipe costs per gram
+          <div className="flex items-center gap-3">
+            <h1 className="font-serif text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+              Raw Ingredient Purchase Rates
+            </h1>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
+              {ingredients.length} Commodities
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 font-normal mt-1">
+            Baseline procurement contract rates used to dynamically compute kitchen batch costing
           </p>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+      <div className="hotel-card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200 text-xs font-bold uppercase text-slate-500 tracking-wider">
+            <thead className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold uppercase text-slate-500 tracking-wider">
               <tr>
-                <th className="py-3.5 px-6">Ingredient Name</th>
+                <th className="py-3.5 px-6">Ingredient Commodity</th>
                 <th className="py-3.5 px-4">Base Unit</th>
-                <th className="py-3.5 px-4 text-right">Cost / Unit (INR)</th>
+                <th className="py-3.5 px-4 text-right">Procurement Cost</th>
                 <th className="py-3.5 px-4 text-right">Effective Cost / g</th>
                 <th className="py-3.5 px-6 text-right">Actions</th>
               </tr>
@@ -73,17 +78,17 @@ export default function IngredientsPage() {
                   : ing.cost_per_unit;
 
                 return (
-                  <tr key={ing.id} className="hover:bg-slate-50/50">
+                  <tr key={ing.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="py-4 px-6 font-bold text-slate-900">{ing.name}</td>
                     <td className="py-4 px-4">
-                      <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 uppercase">
+                      <span className="inline-block px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 uppercase">
                         {ing.unit}
                       </span>
                     </td>
-                    <td className="py-4 px-4 text-right font-black text-slate-900">
-                      {formatINR(ing.cost_per_unit)} / {ing.unit}
+                    <td className="py-4 px-4 text-right font-bold text-slate-900">
+                      {formatINR(ing.cost_per_unit)} <span className="text-xs font-normal text-slate-400">/ {ing.unit}</span>
                     </td>
-                    <td className="py-4 px-4 text-right font-semibold text-slate-600">
+                    <td className="py-4 px-4 text-right font-medium text-slate-600">
                       ₹{costPerG.toFixed(4)} / g
                     </td>
                     <td className="py-4 px-6 text-right">
@@ -92,10 +97,10 @@ export default function IngredientsPage() {
                           setEditingItem(ing);
                           setCostInput(ing.cost_per_unit.toString());
                         }}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors"
+                        className="hotel-btn-secondary text-[11px] py-1 px-2.5 rounded-md"
                       >
                         <Edit3 className="w-3.5 h-3.5" />
-                        Edit Cost
+                        Update Rate
                       </button>
                     </td>
                   </tr>
@@ -106,36 +111,51 @@ export default function IngredientsPage() {
         </div>
       </div>
 
+      {/* Edit Rate Modal */}
       {editingItem && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4">
-            <h3 className="text-base font-black text-slate-900">
-              Update Cost: {editingItem.name}
-            </h3>
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="hotel-card bg-white max-w-sm w-full p-6 space-y-4 shadow-2xl relative">
+            <button
+              onClick={() => setEditingItem(null)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 p-1 rounded-md hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
             <div>
-              <label className="block text-xs font-bold uppercase text-slate-700 mb-1">
-                Rate in INR per {editingItem.unit}
+              <h3 className="font-serif text-lg font-bold text-slate-900">
+                Update Rate: {editingItem.name}
+              </h3>
+              <p className="text-xs text-slate-500 font-normal">
+                Contract purchase price per {editingItem.unit}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1">
+                Rate (₹ / {editingItem.unit})
               </label>
               <input
                 type="number"
-                step="1"
-                min="0"
+                step="0.5"
                 value={costInput}
                 onChange={(e) => setCostInput(e.target.value)}
-                className="w-full h-11 px-3 rounded-xl border border-slate-300 text-base font-bold text-slate-900"
+                className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
               />
             </div>
-            <div className="flex justify-end gap-2 pt-3">
+
+            <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100">
               <button
                 onClick={() => setEditingItem(null)}
-                className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-700"
+                className="hotel-btn-secondary text-xs"
               >
                 Cancel
               </button>
               <button
                 onClick={saveCost}
-                className="px-5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold shadow-md hover:bg-emerald-700"
+                className="hotel-btn-gold text-xs"
               >
+                <Check className="w-3.5 h-3.5" />
                 Save Rate
               </button>
             </div>

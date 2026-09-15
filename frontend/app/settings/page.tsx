@@ -5,12 +5,12 @@ import { useAuth } from "@/lib/auth";
 import { apiRequest } from "@/lib/api";
 import { SettingsData, TrainingDataExportItem } from "@/types";
 import {
-  Settings as SettingsIcon,
   Sparkles,
   Download,
-  ShieldAlert,
   CheckCircle2,
   Hotel,
+  Save,
+  Sliders,
 } from "lucide-react";
 
 export default function SettingsPage() {
@@ -87,8 +87,8 @@ export default function SettingsPage() {
   if (loading || !settings) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center space-y-3">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-emerald-600"></div>
-        <p className="text-sm text-slate-500 font-medium">Loading system configurations...</p>
+        <div className="w-8 h-8 rounded-full border-3 border-slate-200 border-t-slate-900 animate-spin" />
+        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Loading Configuration...</p>
       </div>
     );
   }
@@ -96,75 +96,75 @@ export default function SettingsPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-8 pb-16">
       <div className="border-b border-slate-200 pb-5">
-        <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-          System & AI Configuration
+        <h1 className="font-serif text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+          System & Optical Parameters
         </h1>
-        <p className="text-sm text-slate-500 font-medium mt-1">
-          Computer vision model settings, confidence thresholds, and training dataset exports
+        <p className="text-xs text-slate-500 font-normal mt-1">
+          Computer vision inference model parameters, confidence thresholds, and verified audit dataset exports
         </p>
       </div>
 
       {saveSuccess && (
-        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-bold flex items-center gap-2">
-          <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-[#064e3b] text-xs font-semibold flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           Settings updated successfully!
         </div>
       )}
 
       <form onSubmit={handleSave} className="space-y-6">
         {/* AI Inference Settings Card */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-5">
+        <div className="hotel-card p-6 sm:p-7 space-y-6">
           <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
-            <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
-              <Sparkles className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-xl bg-amber-50 text-[#b48324] flex items-center justify-center border border-amber-200">
+              <Sliders className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-black text-slate-900">AI Model & Inference Mode</h3>
-              <p className="text-xs text-slate-500">Configure YOLO26-seg segmentation model runtime</p>
+              <h3 className="font-serif text-base font-bold text-slate-900">Vision Model Runtime</h3>
+              <p className="text-xs text-slate-500 font-normal">Configure dish segmentation mode</p>
             </div>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-5">
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-2">
                 Inference Engine Mode
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
                   onClick={() => setAiMode("mock")}
-                  className={`p-3.5 rounded-xl border text-left transition-all ${
+                  className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
                     aiMode === "mock"
-                      ? "border-emerald-500 bg-emerald-50/60 ring-2 ring-emerald-500/20"
-                      : "border-slate-200 bg-slate-50 hover:bg-slate-100"
+                      ? "border-[#0f2942] bg-slate-50 ring-1 ring-[#0f2942]"
+                      : "border-slate-200 bg-white hover:bg-slate-50"
                   }`}
                 >
-                  <div className="font-bold text-sm text-slate-900">Mock AI Mode (Demo)</div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    Deterministic realistic detections without GPU or weights file.
+                  <div className="font-bold text-sm text-slate-900">Deterministic Engine (Demo)</div>
+                  <div className="text-xs text-slate-500 font-normal mt-1 leading-relaxed">
+                    Reliable volume estimation without requiring dedicated server GPU resources.
                   </div>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setAiMode("yolo")}
-                  className={`p-3.5 rounded-xl border text-left transition-all ${
+                  className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
                     aiMode === "yolo"
-                      ? "border-purple-500 bg-purple-50/60 ring-2 ring-purple-500/20"
-                      : "border-slate-200 bg-slate-50 hover:bg-slate-100"
+                      ? "border-[#0f2942] bg-slate-50 ring-1 ring-[#0f2942]"
+                      : "border-slate-200 bg-white hover:bg-slate-50"
                   }`}
                 >
-                  <div className="font-bold text-sm text-slate-900">YOLO26-seg (Live Model)</div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    Loads custom weights from AI_MODEL_PATH.
+                  <div className="font-bold text-sm text-slate-900">YOLO26-seg (Neural Model)</div>
+                  <div className="text-xs text-slate-500 font-normal mt-1 leading-relaxed">
+                    Runs PyTorch/Ultralytics segmentation checkpoint from model weights file.
                   </div>
                 </button>
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                Low Confidence Warning Threshold ({Math.round(parseFloat(threshold) * 100)}%)
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-2">
+                Low Confidence Verification Alert ({Math.round(parseFloat(threshold) * 100)}%)
               </label>
               <input
                 type="range"
@@ -173,91 +173,92 @@ export default function SettingsPage() {
                 step="0.05"
                 value={threshold}
                 onChange={(e) => setThreshold(e.target.value)}
-                className="w-full accent-emerald-600"
+                className="w-full accent-[#0f2942] h-2 bg-slate-200 rounded-lg cursor-pointer"
               />
-              <p className="text-[11px] text-slate-400 mt-1">
-                Scans below this score prompt staff to manually verify the detected dish.
+              <p className="text-[11px] text-slate-400 font-normal mt-1">
+                Scans scoring below this threshold prompt staff to verify food item identity or scale weight.
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4 pt-2 text-xs">
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <span className="font-bold text-slate-400 uppercase text-[10px] block">Model Name</span>
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                <span className="font-bold text-slate-400 uppercase text-[10px] block">Model Identifier</span>
                 <span className="font-bold text-slate-800 text-sm mt-0.5 block">{settings.ai_model_name}</span>
               </div>
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <span className="font-bold text-slate-400 uppercase text-[10px] block">Model Version</span>
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                <span className="font-bold text-slate-400 uppercase text-[10px] block">Checkpoint Version</span>
                 <span className="font-bold text-slate-800 text-sm mt-0.5 block">{settings.ai_model_version}</span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Hotel Details Card */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-4">
+        {/* Hotel Profile Card */}
+        <div className="hotel-card p-6 sm:p-7 space-y-5">
           <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
-            <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-slate-100 text-[#0f2942] flex items-center justify-center border border-slate-200">
               <Hotel className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-black text-slate-900">Hotel Profile</h3>
-              <p className="text-xs text-slate-500">Banquet facility details printed on official reports</p>
+              <h3 className="font-serif text-base font-bold text-slate-900">Hotel Profile</h3>
+              <p className="text-xs text-slate-500 font-normal">Hotel identity printed on official audit reports</p>
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div>
-              <label className="block text-xs font-bold uppercase text-slate-700 mb-1">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                 Hotel Name
               </label>
               <input
                 type="text"
                 value={hotelName}
                 onChange={(e) => setHotelName(e.target.value)}
-                className="w-full h-10 px-3.5 rounded-xl border border-slate-300 text-sm font-semibold text-slate-900 focus:ring-2 focus:ring-emerald-500"
+                className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase text-slate-700 mb-1">
-                Address
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                Address & Banquet Location
               </label>
               <input
                 type="text"
                 value={hotelAddress}
                 onChange={(e) => setHotelAddress(e.target.value)}
-                className="w-full h-10 px-3.5 rounded-xl border border-slate-300 text-sm text-slate-900 focus:ring-2 focus:ring-emerald-500"
+                className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-900 font-medium focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
               />
             </div>
           </div>
 
-          <div className="flex justify-end pt-3">
+          <div className="flex justify-end pt-3 border-t border-slate-100">
             <button
               type="submit"
               disabled={saving}
-              className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md disabled:opacity-50"
+              className="hotel-btn-gold text-xs"
             >
+              <Save className="w-3.5 h-3.5" />
               {saving ? "Saving..." : "Save Settings"}
             </button>
           </div>
         </div>
       </form>
 
-      {/* Model Continuous Learning & Dataset Export (Section 42) */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 space-y-4">
-        <div className="flex items-center justify-between">
+      {/* Dataset Export Card */}
+      <div className="hotel-card p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h3 className="text-base font-black text-slate-900">Model Training Dataset Export</h3>
-            <p className="text-xs text-slate-500">
-              Download real verified hotel food images and staff corrections for future YOLO26-seg fine-tuning.
+            <h3 className="font-serif text-base font-bold text-slate-900">Culinary Audit Training Dataset</h3>
+            <p className="text-xs text-slate-500 font-normal mt-0.5">
+              Export verified scans with ground-truth food coordinates & staff overrides in JSON format.
             </p>
           </div>
           <button
             type="button"
             onClick={handleExportTrainingData}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-md transition-all cursor-pointer"
+            className="hotel-btn-primary text-xs shrink-0"
           >
-            <Download className="w-4 h-4" />
+            <Download className="w-3.5 h-3.5" />
             Export Dataset (JSON)
           </button>
         </div>

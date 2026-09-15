@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { Utensils, Lock, Mail, AlertCircle, ArrowRight, ShieldCheck } from "lucide-react";
+import { Lock, Mail, AlertCircle, ArrowRight, ShieldCheck, CheckCircle2, Hotel } from "lucide-react";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -32,31 +32,38 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-[80vh] flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <div className="mx-auto h-16 w-16 rounded-2xl bg-emerald-600 flex items-center justify-center text-white shadow-lg shadow-emerald-600/20 mb-4">
-          <Utensils className="h-8 w-8" />
+    <div className="min-h-[80vh] flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8 relative">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center space-y-3">
+        {/* Hotel Emblem */}
+        <div className="mx-auto h-16 w-16 rounded-2xl bg-slate-900 flex items-center justify-center text-white shadow-md border border-slate-800">
+          <Hotel className="h-8 w-8 text-slate-100" />
         </div>
-        <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight">
-          Dolphin Hotels
-        </h2>
-        <p className="mt-1 text-sm font-medium text-slate-500">
-          Banquet Food Waste Tracking & Analytics Platform
-        </p>
+
+        <div>
+          <h2 className="font-serif text-3xl font-bold text-slate-900 tracking-tight">
+            Dolphin Hotels
+          </h2>
+          <p className="mt-1 text-xs font-semibold text-slate-500 uppercase tracking-widest">
+            Banquet Food Waste & Cost Control Portal
+          </p>
+        </div>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-6 shadow-xl shadow-slate-200/60 rounded-2xl border border-slate-100 sm:px-10">
+        <div className="hotel-card bg-white p-8 border border-slate-200 shadow-lg sm:p-10 space-y-6">
           {error && (
-            <div className="mb-6 p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm flex items-start gap-2.5">
-              <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-              <div className="font-medium">{error}</div>
+            <div className="p-3.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+              <div>
+                <strong className="block text-rose-950 font-bold">Authentication Failed</strong>
+                {error}
+              </div>
             </div>
           )}
 
-          <form className="space-y-5" onSubmit={handleSubmit}>
+          <form className="space-y-4" onSubmit={handleSubmit}>
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                 Staff Email Address
               </label>
               <div className="relative">
@@ -69,13 +76,13 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="e.g. demo@example.com"
-                  className="block w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm font-medium"
+                  className="block w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 text-xs font-medium transition-all"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                 Password
               </label>
               <div className="relative">
@@ -88,41 +95,56 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="block w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm font-medium"
+                  className="block w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 text-xs font-medium transition-all"
                 />
               </div>
             </div>
 
-            <div>
+            <div className="pt-2">
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-xl shadow-md text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:opacity-50 transition-all cursor-pointer"
+                className="hotel-btn-primary w-full py-3 text-xs"
               >
-                {loading ? "Signing in..." : "Sign in to Dashboard"}
-                {!loading && <ArrowRight className="ml-2 w-4 h-4" />}
+                {loading ? (
+                  <span className="flex items-center gap-2">
+                    <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    Authenticating...
+                  </span>
+                ) : (
+                  <span className="flex items-center justify-center gap-2">
+                    Sign In to Portal
+                    <ArrowRight className="w-4 h-4" />
+                  </span>
+                )}
               </button>
             </div>
           </form>
 
-          {/* Seeded Demo Account Quick Access */}
-          <div className="mt-8 pt-6 border-t border-slate-100">
-            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-700 mb-1">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                Demo Credentials (Development Mode)
+          {/* Seeded Hotel Staff Account Card */}
+          <div className="pt-5 border-t border-slate-100">
+            <div className="rounded-xl p-4 bg-slate-50 border border-slate-200 text-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                  <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                  <span>Verified Staff Credentials</span>
+                </div>
+                <span className="text-[10px] bg-slate-200 text-slate-700 px-2 py-0.5 rounded-md font-semibold">
+                  Demo Access
+                </span>
               </div>
-              <p className="text-xs text-slate-500 mb-3">
-                Pre-configured banquet operations account:
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Email: <span className="font-mono text-slate-900 font-semibold">demo@example.com</span>
                 <br />
-                <span className="font-mono text-slate-700 font-semibold">demo@example.com</span> / <span className="font-mono text-slate-700 font-semibold">demo123</span>
+                Password: <span className="font-mono text-slate-900 font-semibold">demo123</span>
               </p>
               <button
                 type="button"
                 onClick={handleFillDemo}
-                className="w-full py-1.5 px-3 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 transition-colors shadow-2xs"
+                className="hotel-btn-secondary w-full py-2 text-xs"
               >
-                Auto-fill Demo Credentials
+                <CheckCircle2 className="w-3.5 h-3.5 text-slate-700" />
+                Fill Staff Credentials
               </button>
             </div>
           </div>

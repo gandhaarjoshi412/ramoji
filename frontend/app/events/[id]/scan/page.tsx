@@ -16,9 +16,12 @@ import {
   RotateCcw,
   ArrowLeft,
   DollarSign,
-  Layers,
   ChevronRight,
   Info,
+  ScanLine,
+  Zap,
+  Save,
+  Check,
 } from "lucide-react";
 
 export default function WasteScannerPage() {
@@ -66,7 +69,6 @@ export default function WasteScannerPage() {
     }
   }, [eventId]);
 
-  // Clean up camera stream on unmount
   useEffect(() => {
     return () => {
       stopCamera();
@@ -84,7 +86,6 @@ export default function WasteScannerPage() {
         setIsCameraActive(true);
       }
     } catch (err) {
-      // If camera access is denied, trigger file input directly
       if (fileInputRef.current) {
         fileInputRef.current.click();
       }
@@ -104,195 +105,182 @@ export default function WasteScannerPage() {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    canvas.width = video.videoWidth || 800;
-    canvas.height = video.videoHeight || 600;
 
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
     const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob(
-        (blob) => {
-          if (blob) {
-            setCapturedImageBlob(blob);
-            setImagePreviewUrl(URL.createObjectURL(blob));
-            stopCamera();
-            runScanPipeline(blob, "camera_capture.jpg");
-          }
-        },
-        "image/jpeg",
-        0.9
-      );
-    }
+    if (!ctx) return;
+
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        setCapturedImageBlob(blob);
+        const previewUrl = URL.createObjectURL(blob);
+        setImagePreviewUrl(previewUrl);
+        stopCamera();
+        processScan(blob);
+      }
+    }, "image/jpeg", 0.9);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setCapturedImageBlob(file);
-      setImagePreviewUrl(URL.createObjectURL(file));
-      stopCamera();
-      runScanPipeline(file, file.name);
-    }
+    if (!file) return;
+
+    setCapturedImageBlob(file);
+    const previewUrl = URL.createObjectURL(file);
+    setImagePreviewUrl(previewUrl);
+    processScan(file);
   };
 
-  // Run the 4-stage AI pipeline
-  const runScanPipeline = async (blob: Blob, filename: string) => {
+  const processScan = async (fileBlob: Blob) => {
     setStage("uploading");
-    setStageMessage("Uploading photograph to banquet dispatch storage...");
+    setStageMessage("Transmitting high-resolution dish image...");
     setErrorMessage(null);
 
     const formData = new FormData();
-    formData.append("file", blob, filename);
+    formData.append("file", fileBlob, "dish_scan.jpg");
 
     try {
-      setTimeout(() => {
-        setStage("analyzing");
-        setStageMessage("AI inference running: YOLO26-seg segmentation & food detection...");
-      }, 500);
+      setStage("analyzing");
+      setStageMessage("AI volume segmentation & ingredient costing...");
 
-      const res = await apiRequest<WasteScan>(`/api/events/${eventId}/scan`, {
+      const scan = await apiRequest<WasteScan>(`/api/events/${eventId}/scan`, {
         method: "POST",
         body: formData,
-        headers: {}, // Let browser set multipart boundary
       });
 
-      setScanResult(res);
-      setCorrectedWeight(res.estimated_weight_grams.toString());
-      setCorrectedFoodId(res.food_item_id || "");
+      setScanResult(scan);
+      setCorrectedFoodId(scan.final_food_id || "");
+      setCorrectedWeight(String(scan.final_weight_kg || scan.estimated_weight_kg));
+      setCorrectionNotes(scan.correction_notes || "");
       setStage("result");
     } catch (err: any) {
+      setErrorMessage(err.message || "Failed to process scan inference.");
       setStage("error");
-      setErrorMessage(err.message || "Failed to process food waste scan.");
-    }
-  };
-
-  const handleConfirm = async () => {
-    if (!scanResult) return;
-    try {
-      await apiRequest(`/api/scans/${scanResult.id}/verify`, {
-        method: "PUT",
-        body: JSON.stringify({
-          notes: "Confirmed by banquet staff without corrections.",
-        }),
-      });
-      setStage("confirmed");
-    } catch (err: any) {
-      alert(err.message || "Failed to confirm scan.");
     }
   };
 
   const handleSaveCorrection = async () => {
     if (!scanResult) return;
-    const weightNum = parseFloat(correctedWeight);
-    if (!weightNum || weightNum <= 0) {
-      alert("Please enter a valid weight in grams.");
-      return;
-    }
 
     try {
-      const updated = await apiRequest<WasteScan>(`/api/scans/${scanResult.id}/verify`, {
-        method: "PUT",
-        body: JSON.stringify({
-          food_item_id: correctedFoodId ? Number(correctedFoodId) : undefined,
-          human_weight_correction: weightNum,
-          notes: correctionNotes.trim() || undefined,
-        }),
-      });
-      setScanResult(updated);
+      const updatedScan = await apiRequest<WasteScan>(
+        `/api/events/${eventId}/scans/${scanResult.id}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            final_food_id: correctedFoodId ? Number(correctedFoodId) : undefined,
+            final_weight_kg: correctedWeight ? parseFloat(correctedWeight) : undefined,
+            correction_notes: correctionNotes || undefined,
+          }),
+        }
+      );
+
+      setScanResult(updatedScan);
       setIsEditing(false);
-      setStage("confirmed");
     } catch (err: any) {
-      alert(err.message || "Failed to save correction.");
+      alert(err.message || "Failed to update scan audit.");
     }
+  };
+
+  const handleConfirmScan = () => {
+    setStage("confirmed");
+    setTimeout(() => {
+      router.push(`/events/${eventId}`);
+    }, 1500);
   };
 
   const handleReset = () => {
-    setImagePreviewUrl(null);
-    setCapturedImageBlob(null);
-    setScanResult(null);
-    setIsEditing(false);
     setStage("idle");
+    setScanResult(null);
+    setCapturedImageBlob(null);
+    setImagePreviewUrl(null);
+    setIsEditing(false);
     setErrorMessage(null);
   };
 
-  if (loadingEvent) {
-    return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center space-y-3">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-emerald-600"></div>
-        <p className="text-sm text-slate-500 font-medium">Initializing waste scanner...</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="max-w-2xl mx-auto space-y-6 pb-16">
-      {/* Top Header */}
-      <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+    <div className="max-w-3xl mx-auto space-y-6 pb-16">
+      {/* Hidden File Input & Canvas */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        accept="image/*"
+        capture="environment"
+        onChange={handleFileUpload}
+        className="hidden"
+      />
+      <canvas ref={canvasRef} className="hidden" />
+
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-slate-200 pb-5">
         <div className="flex items-center gap-3">
           <Link
             href={`/events/${eventId}`}
-            className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition-colors"
+            className="p-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition-colors shadow-2xs"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <div>
-            <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-              AI Waste Scanner
+            <h1 className="font-serif text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+              Camera Food Waste Scan
             </h1>
-            <p className="text-xs text-slate-500 font-medium">
-              Event: <strong className="text-slate-800">{event?.name}</strong> • Camera Quantity & Recipe Cost Engine
+            <p className="text-xs text-slate-500 font-normal">
+              {event?.name ? `Audit scan for: ${event.name}` : "Optical volumetric food waste analysis"}
             </p>
           </div>
         </div>
 
-        <Link
-          href={`/events/${eventId}/analytics`}
-          className="text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-xl transition-colors"
-        >
-          View Analytics
-        </Link>
+        {stage !== "idle" && (
+          <button
+            onClick={handleReset}
+            className="hotel-btn-secondary text-xs py-1.5 px-3"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            New Scan
+          </button>
+        )}
       </div>
 
-      {/* Camera / Upload Container */}
-      <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md overflow-hidden relative">
-        {/* Hidden Canvas for Frame Capture */}
-        <canvas ref={canvasRef} className="hidden" />
-
-        {/* Hidden File Input Fallback */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          onChange={handleFileUpload}
-          className="hidden"
-        />
-
+      {/* Main Scanner Container */}
+      <div className="hotel-card overflow-hidden">
         {/* Live Camera View */}
         {isCameraActive && (
-          <div className="relative bg-black aspect-4/3 flex items-center justify-center overflow-hidden">
-            <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
-            
-            {/* Guide overlay */}
-            <div className="absolute inset-8 border-2 border-dashed border-white/60 rounded-2xl pointer-events-none flex items-center justify-center">
-              <span className="text-white/80 text-xs font-bold bg-black/40 px-3 py-1 rounded-full backdrop-blur-xs">
-                Position food dish inside frame
+          <div className="relative aspect-4/3 bg-black flex items-center justify-center overflow-hidden">
+            <video
+              ref={videoRef}
+              playsInline
+              autoPlay
+              muted
+              className="w-full h-full object-cover"
+            />
+
+            {/* Viewfinder Reticle with Warm Bronze Corners */}
+            <div className="absolute inset-8 pointer-events-none border-2 border-white/20 rounded-xl flex items-center justify-center">
+              <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-[#b48324] rounded-tl-lg" />
+              <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-[#b48324] rounded-tr-lg" />
+              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-[#b48324] rounded-bl-lg" />
+              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-[#b48324] rounded-br-lg" />
+              <span className="text-[11px] font-bold text-[#f4d89a] uppercase tracking-widest bg-black/60 px-3 py-1 rounded-md backdrop-blur-md">
+                Align Chafing Dish or Platter
               </span>
             </div>
 
-            {/* Shutter Button */}
-            <div className="absolute bottom-6 inset-x-0 flex justify-center items-center gap-6">
+            {/* Camera Controls */}
+            <div className="absolute bottom-6 inset-x-0 flex items-center justify-center gap-6">
               <button
                 type="button"
                 onClick={stopCamera}
-                className="px-4 py-2 rounded-full bg-black/60 text-white text-xs font-bold backdrop-blur-xs hover:bg-black/80"
+                className="hotel-btn-secondary text-xs bg-black/70 text-white border-white/20 hover:bg-black"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={capturePhoto}
-                className="w-16 h-16 rounded-full border-4 border-white bg-emerald-500 hover:bg-emerald-600 shadow-xl flex items-center justify-center transition-transform active:scale-95 cursor-pointer"
+                className="w-16 h-16 rounded-full border-4 border-white bg-[#b48324] hover:bg-[#966814] shadow-xl flex items-center justify-center transition-all cursor-pointer transform active:scale-95"
               >
                 <Camera className="w-7 h-7 text-white" />
               </button>
@@ -300,19 +288,25 @@ export default function WasteScannerPage() {
           </div>
         )}
 
-        {/* Captured Image Preview with Bounding Box Overlay */}
+        {/* Captured Image Preview with Bounding Box & Scanning Laser */}
         {!isCameraActive && imagePreviewUrl && (
-          <div className="relative aspect-4/3 bg-slate-900 flex items-center justify-center overflow-hidden">
+          <div className="relative aspect-4/3 bg-slate-950 flex items-center justify-center overflow-hidden">
             <img
               src={imagePreviewUrl}
-              alt="Scanned Leftover Food"
+              alt="Scanned Food Leftover"
               className="w-full h-full object-contain"
             />
 
-            {/* AI Bounding Box & Segmentation Indicator */}
+            {/* Laser Scanning Animation */}
+            {(stage === "uploading" || stage === "analyzing") && (
+              <div className="scanner-laser" />
+            )}
+
+            {/* AI Bounding Box Overlay */}
             {stage === "result" && scanResult?.bounding_box && (
-              <div className="absolute inset-0 pointer-events-none border-4 border-emerald-500/80 rounded-lg m-6 flex items-start justify-start p-2">
-                <span className="bg-emerald-600 text-white text-[11px] font-black px-2.5 py-0.5 rounded shadow">
+              <div className="absolute inset-0 pointer-events-none border-3 border-[#b48324] rounded-xl m-6 flex items-start justify-start p-3 shadow-2xl">
+                <span className="bg-[#0f2942] text-[#f4d89a] text-[11px] font-bold px-3 py-1 rounded-md border border-[#b48324] flex items-center gap-1.5 shadow-md">
+                  <Sparkles className="w-3.5 h-3.5 text-[#b48324]" />
                   {scanResult.ai_food_prediction} ({Math.round(scanResult.ai_confidence * 100)}%)
                 </span>
               </div>
@@ -323,14 +317,16 @@ export default function WasteScannerPage() {
         {/* Initial Idle Screen */}
         {stage === "idle" && !isCameraActive && !imagePreviewUrl && (
           <div className="p-8 sm:p-12 text-center space-y-6">
-            <div className="w-20 h-20 mx-auto rounded-3xl bg-emerald-50 text-emerald-600 flex items-center justify-center shadow-inner">
-              <Camera className="w-10 h-10" />
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-slate-100 text-[#0f2942] flex items-center justify-center border border-slate-200 shadow-xs">
+              <Camera className="w-8 h-8 text-[#0f2942]" />
             </div>
 
             <div className="space-y-2 max-w-sm mx-auto">
-              <h3 className="text-lg font-black text-slate-900">Photograph Leftover Food</h3>
-              <p className="text-xs text-slate-500 font-medium">
-                Point camera at leftover pan, chafing dish, or buffet platter. AI will detect the food, estimate volume, and calculate production cost loss.
+              <h3 className="font-serif text-xl font-bold text-slate-900 tracking-tight">
+                Photograph Leftover Banquet Dish
+              </h3>
+              <p className="text-xs text-slate-500 font-normal leading-relaxed">
+                Position camera over chafing tray or serving bowl. AI segments food items, computes estimated weight from volume density, and determines raw production cost loss.
               </p>
             </div>
 
@@ -338,7 +334,7 @@ export default function WasteScannerPage() {
               <button
                 type="button"
                 onClick={startCamera}
-                className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="hotel-btn-gold w-full sm:w-auto text-xs py-3 px-6"
               >
                 <Camera className="w-4 h-4" />
                 Open Live Camera
@@ -347,47 +343,46 @@ export default function WasteScannerPage() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full sm:w-auto px-6 py-3 rounded-2xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-sm font-bold transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="hotel-btn-secondary w-full sm:w-auto text-xs py-3 px-6"
               >
                 <Upload className="w-4 h-4 text-slate-500" />
-                Upload from Gallery
+                Upload Dish Photo
               </button>
             </div>
 
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 max-w-sm mx-auto flex items-start gap-2 text-left text-[11px] text-slate-500">
-              <Info className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 max-w-md mx-auto flex items-start gap-2.5 text-left text-xs text-slate-600 font-normal">
+              <Info className="w-4 h-4 text-[#b48324] shrink-0 mt-0.5" />
               <span>
-                Camera-only approximation. Results are clearly marked as <strong>estimates</strong> based on physical density and recipe costs.
+                Derived quantities are labeled as <strong>Estimated Waste Cost</strong> in compliance with hospitality kitchen auditing standards.
               </span>
             </div>
           </div>
         )}
 
-        {/* Processing Pipeline Animation */}
+        {/* Processing Animation */}
         {(stage === "uploading" || stage === "analyzing") && (
-          <div className="p-8 text-center space-y-4 bg-white">
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center animate-pulse">
-              <Sparkles className="w-7 h-7 animate-spin" />
+          <div className="p-8 text-center space-y-4 bg-slate-900 text-white">
+            <div className="w-14 h-14 mx-auto rounded-xl bg-[#b48324]/20 text-[#f4d89a] flex items-center justify-center border border-[#b48324]/30">
+              <Zap className="w-7 h-7 animate-pulse text-[#e5b958]" />
             </div>
-            <div>
-              <h4 className="text-base font-black text-slate-900">Analyzing Food Waste</h4>
-              <p className="text-xs text-slate-500 mt-1 font-medium">{stageMessage}</p>
-            </div>
-            <div className="w-48 h-1.5 mx-auto bg-slate-100 rounded-full overflow-hidden">
-              <div className="h-full bg-emerald-500 rounded-full animate-indeterminate" />
+            <div className="space-y-1">
+              <h4 className="text-base font-bold text-white">Running Vision Inference</h4>
+              <p className="text-xs text-[#f4d89a] font-medium">{stageMessage}</p>
             </div>
           </div>
         )}
 
         {/* Error State */}
         {stage === "error" && (
-          <div className="p-6 bg-red-50 text-center space-y-3">
-            <AlertTriangle className="w-8 h-8 text-red-600 mx-auto" />
-            <h4 className="text-sm font-bold text-red-900">Scan Analysis Error</h4>
-            <p className="text-xs text-red-700">{errorMessage}</p>
+          <div className="p-8 bg-rose-50 border-t border-rose-200 text-center space-y-4">
+            <AlertTriangle className="w-10 h-10 text-rose-600 mx-auto" />
+            <div>
+              <h4 className="text-base font-bold text-rose-900">Scan Analysis Failed</h4>
+              <p className="text-xs text-rose-700 mt-1">{errorMessage}</p>
+            </div>
             <button
               onClick={handleReset}
-              className="px-4 py-2 rounded-xl bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition-colors"
+              className="hotel-btn-primary bg-rose-600 hover:bg-rose-700 border-rose-600 text-xs"
             >
               Try Again
             </button>
@@ -396,223 +391,202 @@ export default function WasteScannerPage() {
 
         {/* Success / Result Stage */}
         {stage === "result" && scanResult && !isEditing && (
-          <div className="p-6 sm:p-8 space-y-6 bg-white border-t border-slate-100">
+          <div className="p-6 sm:p-8 space-y-6 bg-white border-t border-slate-200">
             {/* Low confidence warning banner */}
             {scanResult.is_low_confidence && (
-              <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold flex items-start gap-2.5">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-[#b48324] shrink-0 mt-0.5" />
                 <div>
-                  <strong>Low confidence detection ({Math.round(scanResult.ai_confidence * 100)}%).</strong>
-                  <p className="font-normal mt-0.5">Please verify the detected food item using the "Correct" button.</p>
+                  <strong className="block text-amber-950 font-bold">Low Confidence Prediction ({Math.round(scanResult.ai_confidence * 100)}%)</strong>
+                  <p className="font-normal mt-0.5 text-amber-800">
+                    The optical confidence is below target. Click &quot;Correct Audit&quot; below to adjust food item or weight.
+                  </p>
                 </div>
               </div>
             )}
 
             {/* Detection Summary Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
-                  Detected Food Item
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                  Identified Food Dish
                 </span>
-                <span className="text-2xl font-black text-slate-900 tracking-tight">
+                <span className="font-serif text-2xl font-bold text-slate-900">
                   {scanResult.final_food_name}
                 </span>
               </div>
               <div className="text-right">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
-                  AI Confidence
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                  AI Optical Confidence
                 </span>
-                <span className={`text-base font-black px-2.5 py-0.5 rounded-full ${
+                <span className={`text-xs font-bold px-3 py-1 rounded-md inline-block mt-0.5 border ${
                   scanResult.ai_confidence >= 0.85 
-                    ? "bg-emerald-100 text-emerald-800" 
-                    : "bg-amber-100 text-amber-800"
+                    ? "bg-emerald-50 text-[#064e3b] border-emerald-200" 
+                    : "bg-amber-50 text-[#b48324] border-amber-200"
                 }`}>
-                  {Math.round(scanResult.ai_confidence * 100)}%
+                  {Math.round(scanResult.ai_confidence * 100)}% Match
                 </span>
               </div>
             </div>
 
-            {/* Core Calculations Grid */}
-            <div className="grid grid-cols-3 gap-3 p-4 rounded-2xl bg-slate-50 border border-slate-200">
-              <div>
-                <span className="text-[10px] font-bold uppercase text-slate-500 block">
-                  Estimated Quantity
+            {/* Metric Details Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                  Measured Waste Weight
                 </span>
-                <span className="text-lg font-black text-slate-900 block mt-0.5">
-                  {scanResult.final_weight_grams} <span className="text-xs font-bold text-slate-500">g</span>
-                </span>
-                <span className="text-[10px] text-slate-400 block">
-                  ({(scanResult.final_weight_grams / 1000).toFixed(2)} kg)
+                <span className="text-xl font-bold text-rose-600">
+                  {scanResult.final_weight_kg || scanResult.estimated_weight_kg} kg
                 </span>
               </div>
 
-              <div>
-                <span className="text-[10px] font-bold uppercase text-slate-500 block">
-                  Recipe Cost / g
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                  Est. Waste Cost Loss
                 </span>
-                <span className="text-lg font-black text-slate-900 block mt-0.5">
-                  ₹{scanResult.cost_per_gram.toFixed(3)}
+                <span className="text-xl font-bold text-slate-900">
+                  {formatINR(scanResult.estimated_cost)}
                 </span>
-                <span className="text-[10px] text-slate-400 block">From ingredients</span>
               </div>
 
-              <div>
-                <span className="text-[10px] font-bold uppercase text-red-700 block">
-                  Estimated Waste Cost
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                  Food Density
                 </span>
-                <span className="text-xl font-black text-red-600 block mt-0.5">
-                  {formatINR(scanResult.final_waste_cost)}
+                <span className="text-xl font-bold text-slate-700">
+                  {scanResult.density_factor} kg/L
                 </span>
-                <span className="text-[10px] text-slate-400 block">Monetary loss</span>
+              </div>
+
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                  Audit Status
+                </span>
+                <span className="text-xs font-bold text-[#064e3b] flex items-center gap-1 mt-1">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  {scanResult.human_verified ? "Staff Verified" : "Optical Estimated"}
+                </span>
               </div>
             </div>
 
-            {/* Model & Source Meta */}
-            <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-100 pt-3">
-              <span>Model: <strong className="text-slate-600">{scanResult.ai_model_name}</strong> ({scanResult.ai_model_version})</span>
-              <span>Method: <strong className="text-slate-600">{scanResult.measurement_method}</strong></span>
-            </div>
-
-            {/* Action Buttons: Confirm, Correct, Retake */}
-            <div className="flex items-center justify-between gap-3 pt-2">
+            {/* Action Buttons */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-100">
               <button
                 type="button"
-                onClick={handleReset}
-                className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-50 transition-colors flex items-center gap-1.5"
+                onClick={() => setIsEditing(true)}
+                className="hotel-btn-secondary text-xs"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
-                Retake
+                <Edit3 className="w-4 h-4" />
+                Correct Food / Weight
               </button>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setIsEditing(true)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold transition-colors flex items-center gap-1.5"
+                  onClick={handleReset}
+                  className="hotel-btn-secondary text-xs"
                 >
-                  <Edit3 className="w-3.5 h-3.5 text-slate-500" />
-                  Correct
+                  Discard
                 </button>
-
                 <button
                   type="button"
-                  onClick={handleConfirm}
-                  className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                  onClick={handleConfirmScan}
+                  className="hotel-btn-gold text-xs"
                 >
-                  <CheckCircle className="w-4 h-4" />
-                  Confirm Waste Record
+                  <Check className="w-4 h-4" />
+                  Confirm & Commit to Banquet
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Staff Correction Sub-form */}
+        {/* Edit / Correction View */}
         {stage === "result" && scanResult && isEditing && (
-          <div className="p-6 sm:p-8 space-y-5 bg-white border-t border-slate-100">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h4 className="text-sm font-black text-slate-900">Correct AI Detection & Quantity</h4>
-              <span className="text-xs text-slate-400">Stores both AI and human edits for model training</span>
-            </div>
+          <div className="p-6 sm:p-8 space-y-5 bg-white border-t border-slate-200">
+            <h3 className="font-serif text-lg font-bold text-slate-900 border-b border-slate-100 pb-3">
+              Manual Staff Audit Override
+            </h3>
 
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-700 mb-1">
-                Select Correct Food (Event Menu)
-              </label>
-              <select
-                value={correctedFoodId}
-                onChange={(e) => setCorrectedFoodId(Number(e.target.value))}
-                className="w-full h-11 px-3 rounded-xl border border-slate-300 text-slate-900 text-sm font-semibold focus:ring-2 focus:ring-emerald-500"
-              >
-                <option value="">-- Choose Food from Hotel Catalog --</option>
-                {catalog.map((food) => (
-                  <option key={food.id} value={food.id}>
-                    {food.name} ({food.category}) — ₹{food.cost_per_gram}/g
-                  </option>
-                ))}
-              </select>
-            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                  Select Correct Food Item
+                </label>
+                <select
+                  value={correctedFoodId}
+                  onChange={(e) => setCorrectedFoodId(Number(e.target.value))}
+                  className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 cursor-pointer"
+                >
+                  {catalog.map((food) => (
+                    <option key={food.id} value={food.id}>
+                      {food.name} ({food.category}) — ₹{food.cost_per_kg}/kg
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-700 mb-1">
-                Estimated Weight (Grams)
-              </label>
-              <div className="relative">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                  Corrected Weight (kg)
+                </label>
                 <input
                   type="number"
-                  step="10"
-                  min="10"
+                  step="0.01"
+                  min="0"
                   value={correctedWeight}
                   onChange={(e) => setCorrectedWeight(e.target.value)}
-                  className="w-full h-11 px-3.5 rounded-xl border border-slate-300 text-slate-900 text-base font-bold focus:ring-2 focus:ring-emerald-500"
+                  className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
                 />
-                <span className="absolute right-3.5 top-2.5 text-slate-400 font-bold text-sm">g</span>
               </div>
-              <p className="text-[11px] text-slate-400 mt-1">AI initially predicted {scanResult.estimated_weight_grams} g</p>
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase text-slate-700 mb-1">
-                Correction Notes (Optional)
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                Staff Audit Notes
               </label>
               <input
                 type="text"
-                placeholder="e.g. Mixed paneer with rice, adjusted depth"
+                placeholder="e.g. Scaled on kitchen tare scale; AI confused curry sauce with gravy."
                 value={correctionNotes}
                 onChange={(e) => setCorrectionNotes(e.target.value)}
-                className="w-full h-10 px-3.5 rounded-xl border border-slate-300 text-slate-800 text-xs focus:ring-2 focus:ring-emerald-500"
+                className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
               />
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-3">
+            <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setIsEditing(false)}
-                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-50"
+                className="hotel-btn-secondary text-xs"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleSaveCorrection}
-                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-md"
+                className="hotel-btn-primary text-xs"
               >
-                Save Correction
+                <Save className="w-4 h-4" />
+                Save Audit Correction
               </button>
             </div>
           </div>
         )}
 
-        {/* Confirmed State */}
+        {/* Confirmed Animation Screen */}
         {stage === "confirmed" && (
-          <div className="p-8 text-center space-y-4 bg-emerald-50/50">
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-lg shadow-emerald-600/20">
-              <CheckCircle className="w-8 h-8" />
+          <div className="p-12 text-center space-y-4 bg-emerald-50 text-emerald-950">
+            <div className="w-16 h-16 mx-auto rounded-full bg-[#064e3b] text-white flex items-center justify-center shadow-lg">
+              <Check className="w-8 h-8" />
             </div>
-            <div>
-              <h3 className="text-xl font-black text-slate-900">Waste Record Saved!</h3>
-              <p className="text-xs text-slate-500 mt-1 font-medium">
-                Event analytics and dashboard have been updated in real-time.
+            <div className="space-y-1">
+              <h3 className="font-serif text-xl font-bold text-[#064e3b]">
+                Scan Logged Successfully
+              </h3>
+              <p className="text-xs text-emerald-700 font-medium">
+                Dish leftover volume and cost loss committed to banquet event records.
               </p>
-            </div>
-
-            <div className="flex justify-center items-center gap-3 pt-2">
-              <button
-                type="button"
-                onClick={handleReset}
-                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-md flex items-center gap-1.5 cursor-pointer"
-              >
-                <Camera className="w-4 h-4" />
-                Scan Another Dish
-              </button>
-
-              <Link
-                href={`/events/${eventId}/analytics`}
-                className="px-5 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold shadow-2xs flex items-center gap-1.5"
-              >
-                <span>View Event Analytics</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </Link>
             </div>
           </div>
         )}
