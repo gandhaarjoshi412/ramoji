@@ -271,6 +271,14 @@ export default function WasteScannerPage() {
   };
 
   // Determine which image to show: Annotated YOLO bounding-box vs Original
+  const matchedFoodItem = catalog.find(
+    (f) =>
+      f.id === scanResult?.food_item_id ||
+      f.id === scanResult?.final_food_id ||
+      f.name.toLowerCase() === scanResult?.final_food_name?.toLowerCase() ||
+      f.name.toLowerCase() === scanResult?.ai_food_prediction?.toLowerCase()
+  );
+
   const displayedImageUrl =
     stage === "result" && scanResult?.annotated_image_url && viewMode === "annotated"
       ? getFullImageUrl(scanResult.annotated_image_url)
@@ -601,7 +609,7 @@ export default function WasteScannerPage() {
                     Low Confidence Prediction ({Math.round(scanResult.ai_confidence * 100)}%)
                   </strong>
                   <p className="font-normal mt-0.5 text-amber-800">
-                    The optical confidence is below target. Click &quot;Correct Food / Weight&quot; below to adjust food item or weight.
+                    The optical confidence is below target. Click &quot;Correct Food Item&quot; below if the dish is misclassified.
                   </p>
                 </div>
               </div>
@@ -636,44 +644,29 @@ export default function WasteScannerPage() {
               </div>
             </div>
 
-            {/* Metric Details Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {/* Detection Details Grid (Weight & Cost Removed) */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                  Measured Waste Weight
+                  Dish Category
                 </span>
-                <span className="text-xl font-bold text-rose-600">
-                  {scanResult.final_weight_kg ??
-                    scanResult.estimated_weight_kg ??
-                    (
-                      (scanResult.final_weight_grams ||
-                        scanResult.estimated_weight_grams ||
-                        0) / 1000
-                    ).toFixed(2)}{" "}
-                  kg
+                <span className="text-base sm:text-lg font-bold text-slate-900 truncate block">
+                  {matchedFoodItem?.category || "Indian Cuisine"}
+                </span>
+                <span className="text-[11px] text-slate-500 block mt-0.5">
+                  Standard Menu Classification
                 </span>
               </div>
 
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                  Est. Waste Cost Loss
+                  AI Model Engine
                 </span>
-                <span className="text-xl font-bold text-slate-900">
-                  {formatINR(
-                    scanResult.estimated_cost ??
-                      scanResult.final_waste_cost ??
-                      scanResult.estimated_waste_cost ??
-                      0
-                  )}
+                <span className="text-base sm:text-lg font-bold text-slate-800 truncate block">
+                  {scanResult.ai_model_name || "YOLO Food Model"}
                 </span>
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                  Food Density
-                </span>
-                <span className="text-xl font-bold text-slate-700">
-                  {scanResult.density_factor ?? 0.85} kg/L
+                <span className="text-[11px] text-[#b48324] font-medium block mt-0.5">
+                  {Math.round(scanResult.ai_confidence * 100)}% Match Accuracy
                 </span>
               </div>
 
@@ -681,9 +674,12 @@ export default function WasteScannerPage() {
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
                   Audit Status
                 </span>
-                <span className="text-xs font-bold text-[#064e3b] flex items-center gap-1 mt-1">
-                  <CheckCircle className="w-3.5 h-3.5" />
+                <span className="text-base sm:text-lg font-bold text-[#064e3b] flex items-center gap-1.5">
+                  <CheckCircle className="w-4 h-4 text-emerald-600" />
                   {scanResult.human_verified ? "Staff Verified" : "Optical Estimated"}
+                </span>
+                <span className="text-[11px] text-slate-500 block mt-0.5">
+                  {scanResult.human_verified ? "Verified by kitchen staff" : "Automated AI Detection"}
                 </span>
               </div>
             </div>
@@ -696,7 +692,7 @@ export default function WasteScannerPage() {
                 className="hotel-btn-secondary text-xs"
               >
                 <Edit3 className="w-4 h-4" />
-                Correct Food / Weight
+                Correct Food Item
               </button>
 
               <div className="flex items-center gap-3">
@@ -719,37 +715,21 @@ export default function WasteScannerPage() {
               Manual Staff Audit Override
             </h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                  Select Correct Food Item
-                </label>
-                <select
-                  value={correctedFoodId}
-                  onChange={(e) => setCorrectedFoodId(Number(e.target.value))}
-                  className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 cursor-pointer"
-                >
-                  {catalog.map((food) => (
-                    <option key={food.id} value={food.id}>
-                      {food.name} ({food.category}) — ₹{food.cost_per_kg || food.default_cost_per_kg}/kg
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                  Corrected Weight (kg)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={correctedWeight}
-                  onChange={(e) => setCorrectedWeight(e.target.value)}
-                  className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
-                />
-              </div>
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                Select Correct Food Item
+              </label>
+              <select
+                value={correctedFoodId}
+                onChange={(e) => setCorrectedFoodId(Number(e.target.value))}
+                className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 cursor-pointer"
+              >
+                {catalog.map((food) => (
+                  <option key={food.id} value={food.id}>
+                    {food.name} ({food.category})
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div>
@@ -758,7 +738,7 @@ export default function WasteScannerPage() {
               </label>
               <input
                 type="text"
-                placeholder="e.g. Scaled on kitchen tare scale; AI confused curry sauce with gravy."
+                placeholder="e.g. AI misclassified curry dish; corrected by chef."
                 value={correctionNotes}
                 onChange={(e) => setCorrectionNotes(e.target.value)}
                 className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
