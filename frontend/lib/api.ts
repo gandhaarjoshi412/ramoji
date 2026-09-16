@@ -14,8 +14,9 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
   const headers: HeadersInit = {
-    "Content-Type": "application/json",
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...(options.headers || {}),
   };
 
