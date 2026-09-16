@@ -17,6 +17,7 @@ class WasteScanResponse(BaseModel):
     event_id: int
     food_item_id: Optional[int] = None
     image_url: str
+    annotated_image_url: Optional[str] = None
     created_at: datetime
 
     # AI Detection

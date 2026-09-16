@@ -66,6 +66,7 @@ export interface WasteScan {
   event_id: number;
   food_item_id?: number;
   image_url: string;
+  annotated_image_url?: string;
   created_at: string;
   ai_food_prediction: string;
   ai_confidence: number;

@@ -28,7 +28,11 @@ class ImageStorage(ABC):
 
 class LocalImageStorage(ImageStorage):
     def __init__(self, upload_dir: Optional[str] = None):
-        self.upload_dir = Path(upload_dir or settings.UPLOAD_DIR)
+        target = upload_dir or settings.UPLOAD_DIR
+        p = Path(target)
+        if not p.is_absolute() and (Path("backend") / p).is_dir():
+            p = Path("backend") / p
+        self.upload_dir = p.resolve()
         self.upload_dir.mkdir(parents=True, exist_ok=True)
 
     def upload(self, file_bytes: bytes, original_filename: str) -> Tuple[str, int, int]:

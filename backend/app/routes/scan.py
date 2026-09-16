@@ -43,6 +43,7 @@ def build_scan_response(scan: WasteScan) -> WasteScanResponse:
         event_id=scan.event_id,
         food_item_id=scan.food_item_id,
         image_url=scan.image_url,
+        annotated_image_url=getattr(scan, "annotated_image_url", None),
         created_at=scan.created_at,
         ai_food_prediction=scan.ai_food_prediction,
         ai_confidence=scan.ai_confidence,
@@ -216,11 +217,23 @@ async def scan_waste_image(
         cost_per_g
     )
 
-    # 8. Save Waste Scan Record
+    # 8. Upload annotated bounding-box visual image if available
+    annotated_image_url = None
+    if getattr(analysis_result, "annotated_image_bytes", None):
+        try:
+            annotated_image_url, _, _ = storage.upload(
+                analysis_result.annotated_image_bytes,
+                f"annotated_{file.filename}"
+            )
+        except Exception as e:
+            print(f"Warning: Failed to save annotated image: {e}")
+
+    # 9. Save Waste Scan Record
     scan = WasteScan(
         event_id=event_id,
         food_item_id=matched_food.id if matched_food else None,
         image_url=image_url,
+        annotated_image_url=annotated_image_url,
         created_at=datetime.now(timezone.utc),
         ai_food_prediction=predicted_name,
         ai_confidence=confidence,

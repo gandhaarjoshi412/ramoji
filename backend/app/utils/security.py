@@ -54,13 +54,16 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     payload = decode_access_token(auth.credentials)
-    user_id: Optional[str] = payload.get("sub")
-    if user_id is None:
+    user_sub = payload.get("sub")
+    if user_sub is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
         )
-    user = db.query(User).filter(User.id == int(user_id)).first()
+    if str(user_sub).isdigit():
+        user = db.query(User).filter(User.id == int(user_sub)).first()
+    else:
+        user = db.query(User).filter(User.email == str(user_sub)).first()
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

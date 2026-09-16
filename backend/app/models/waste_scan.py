@@ -10,6 +10,7 @@ class WasteScan(Base):
     event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
     food_item_id = Column(Integer, ForeignKey("food_items.id"), nullable=True)
     image_url = Column(String(500), nullable=False)
+    annotated_image_url = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     # AI Detection & Segmentation Results

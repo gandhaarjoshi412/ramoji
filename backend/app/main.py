@@ -64,7 +64,10 @@ async def value_error_handler(request: Request, exc: ValueError):
     )
 
 # Serve uploaded photos
-upload_dir = Path(settings.UPLOAD_DIR)
+upload_path = Path(settings.UPLOAD_DIR)
+if not upload_path.is_absolute() and (Path("backend") / upload_path).is_dir():
+    upload_path = Path("backend") / upload_path
+upload_dir = upload_path.resolve()
 upload_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(upload_dir)), name="uploads")
 

@@ -80,11 +80,28 @@ class MockFoodVisionModel(FoodVisionModel):
             mask=mask_points
         )
 
+        annotated_bytes = None
+        try:
+            from PIL import ImageDraw
+            with Image.open(io.BytesIO(image_bytes)) as img:
+                annotated_img = img.convert("RGB")
+                draw = ImageDraw.Draw(annotated_img)
+                draw.rectangle([x1, y1, x2, y2], outline="#b48324", width=4)
+                label = f"{selected_food} {int(confidence*100)}%"
+                draw.rectangle([x1, max(0, y1 - 25), x1 + len(label) * 10 + 10, y1], fill="#0f2942")
+                draw.text((x1 + 5, max(0, y1 - 20)), label, fill="#f4d89a")
+                buf = io.BytesIO()
+                annotated_img.save(buf, format="JPEG", quality=90)
+                annotated_bytes = buf.getvalue()
+        except Exception:
+            pass
+
         return VisionAnalysisResult(
             detections=[detection],
             image_width=width,
             image_height=height,
             model_name="YOLO26-seg",
             model_version=self.model_version,
-            is_mock=True
+            is_mock=True,
+            annotated_image_bytes=annotated_bytes
         )

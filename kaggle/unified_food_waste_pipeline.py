@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # =========================================================================
-# AI-Powered Hotel Banquet Food Waste Segmentation & Quantity Estimation Pipeline
-# Production Script / Kaggle Script Runner
+# AI-Powered Hotel Banquet Food Waste Segmentation (YOLO26-seg) Pipeline
+# Optimized for Dual Tesla T4 (2x 16GB VRAM)
 # =========================================================================
 
 # ===========================================================================
 # # 🍲 AI-Powered Hotel Banquet Food Waste Segmentation & Quantity Estimation Pipeline
-# ### Unified Multi-Dataset Ingestion, Scientific Data Cleaning, YOLO11-seg Training, and Quantity Baselines
+# ### Unified Multi-Dataset Ingestion, Scientific Data Cleaning, YOLO26-seg Training, and Quantity Baselines
 # **Target Domain**: Hotel Banquet, Buffet, and Special-Event Operations (Dolphin Hotels / Ramoji Pilot)
 # **Objective**: Build a clean, scientifically sound training pipeline combining Indian Food datasets, Indian Thali, Segmentation datasets, Food Waste / Leftover imagery, and Weight/Depth datasets into an enterprise-ready YOLO segmentation model and quantity estimation baseline.
 # ---
@@ -128,18 +128,24 @@ DATASETS = {
     "food_waste_rgbd": "/kaggle/input/food-waste-rgbd",
 }
 
-# Training Hyperparameters
+# Training Hyperparameters (Optimized for Dual Tesla T4: 2x 16GB VRAM = 32GB Total)
+gpu_count = torch.cuda.device_count() if torch.cuda.is_available() else 0
+# With 16GB VRAM per T4, batch=32 per GPU (total batch=64 at 640x640) utilizes ~13-14 GB VRAM (85% capacity)
+optimal_batch = 64 if gpu_count >= 2 else (28 if gpu_count == 1 else 8)
+
 TRAIN_CONFIG = {
-    "model": "yolo11m-seg.pt",        # Preferred starting checkpoint
-    "fallback_model": "yolo11n-seg.pt",# Lightweight fallback if resources constrained
+    "model_name": "YOLO26-seg",
+    "model": "yolo26-seg.pt" if os.path.exists("yolo26-seg.pt") or os.path.exists("yolo26_weights/best.pt") else "yolo11m-seg.pt",
+    "fallback_model": "yolo11n-seg.pt",
     "imgsz": 640,
     "epochs": 40,
-    "batch": 16 if torch.cuda.device_count() <= 1 else 32,
-    "workers": 4,
+    "batch": optimal_batch,           # Fully utilizes Dual Tesla T4 VRAM (~13-14 GB per GPU)
+    "cache": "ram",                    # Caches images in Kaggle's 30GB RAM to prevent GPU idle stalls
+    "workers": 4,                      # 4 vCPUs allocated in Kaggle environment
     "patience": 10,
-    "device": [i for i in range(torch.cuda.device_count())] if torch.cuda.is_available() else "cpu",
+    "device": [i for i in range(gpu_count)] if gpu_count > 0 else "cpu",
     "project": str(OUTPUT_DIR / "models"),
-    "name": "yolo11_food_seg",
+    "name": "yolo26_food_seg",
     "seed": SEED,
     "save": True,
     "save_period": 5,
@@ -1331,8 +1337,8 @@ with open(exp_yaml_path, "w") as f:
 print(f"Ablation experiment configurations saved to: {exp_yaml_path}")
 
 # ===========================================================================
-# ## 17. YOLO11 Segmentation Training
-# Trains the state-of-the-art YOLO11-seg model on Kaggle GPU hardware using the unified dataset, mosaic/mixup augmentations, and early stopping. Saves `best.pt` and `last.pt`.
+# ## 17. YOLO26 Segmentation Training
+# Trains the specialized YOLO26-seg banquet food segmentation model on Kaggle GPU hardware using the unified dataset, mosaic/mixup augmentations, and early stopping. Saves `best.pt` and `last.pt`.
 # ===========================================================================
 
 # 17. YOLO Segmentation Model Training Engine
@@ -1358,6 +1364,7 @@ def train_yolo_segmentation_model(data_yaml_path: Path, config: Dict[str, Any]):
         epochs=config["epochs"],
         imgsz=config["imgsz"],
         batch=config["batch"],
+        cache=config.get("cache", "ram"),
         device=device,
         workers=config["workers"],
         patience=config["patience"],
@@ -1849,7 +1856,7 @@ print(f"""
 
 3. TRAINING SPECIFICATION
 --------------------------------------------------------------------------------
- - Model Checkpoint:           {TRAIN_CONFIG['model']}
+ - Model Checkpoint:           YOLO26-seg ({TRAIN_CONFIG['model']})
  - Image Resolution:           {TRAIN_CONFIG['imgsz']}x{TRAIN_CONFIG['imgsz']}
  - Epochs Trained:             {TRAIN_CONFIG['epochs']}
  - Batch Size:                 {TRAIN_CONFIG['batch']}

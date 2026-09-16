@@ -15,6 +15,7 @@ class VisionAnalysisResult(BaseModel):
     model_name: str
     model_version: str
     is_mock: bool = False
+    annotated_image_bytes: Optional[bytes] = None
 
 class FoodVisionModel(ABC):
     """
