@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Real-Time Camera YOLO Food Detection Tester
-Opens your webcam and runs the trained best.pt model in real-time.
+Real-Time Camera YOLO Food Waste Segmentation & Detection Tester
+Opens your webcam and runs the trained YOLO11m segmentation model in real-time.
 """
 
 import sys
@@ -15,11 +15,11 @@ def find_weights():
     script_dir = Path(__file__).resolve().parent
     candidates = [
         script_dir / "best.pt",
-        script_dir / "yolo26_weights" / "best.pt",
+        script_dir / "ai" / "weights" / "yolo11m-seg.pt",
+        Path("/home/gandhaar/kaggle/foodwaste_yolo11m_merged15k/weights/best.pt"),
         script_dir / "ai" / "weights" / "yolo26-seg.pt",
-        script_dir / "runs" / "detect" / "runs" / "indian_food_waste_yolo-3" / "weights" / "best.pt",
+        script_dir / "yolo26_weights" / "best.pt",
         Path("best.pt"),
-        Path("yolo26_weights/best.pt"),
     ]
     for c in candidates:
         if c.exists():
@@ -29,15 +29,18 @@ def find_weights():
 def main():
     weights_path = find_weights()
     if not weights_path:
-        print("❌ Error: Could not find 'best.pt' weights file.")
-        print("Looked in: ./best.pt, ./yolo26_weights/best.pt, ./ai/weights/yolo26-seg.pt")
+        print("❌ Error: Could not find weights file.")
+        print("Looked in: ./best.pt, ./ai/weights/yolo11m-seg.pt, /home/gandhaar/kaggle/foodwaste_yolo11m_merged15k/weights/best.pt")
         sys.exit(1)
 
     print("=" * 60)
-    print("🎥 REAL-TIME CAMERA YOLO FOOD TESTER")
+    print("🎥 REAL-TIME CAMERA YOLO FOOD WASTE SEGMENTATION TESTER")
     print("=" * 60)
     print(f"Loading weights from: {weights_path}")
     model = YOLO(weights_path)
+    task = getattr(model, "task", "segment")
+    print(f"Model Architecture: YOLO11m | Task: {task.upper()}")
+    print(f"Classes: {len(model.names)} Indian Banquet Food Categories")
     print("Model loaded successfully!")
 
     # Try camera index 0 (default webcam)
@@ -86,30 +89,33 @@ def main():
         # conf=0.35 allows good detection sensitivity
         results = model.predict(source=frame, conf=0.35, verbose=False)
 
-        # Plot annotated bounding boxes, masks, and labels on frame
-        annotated_frame = results[0].plot()
+        # Plot annotated segmentation polygon masks, bounding boxes, and labels
+        annotated_frame = results[0].plot(masks=True, boxes=True, labels=True, conf=True)
 
         # Overlay FPS on the screen
         cv2.putText(
             annotated_frame, 
-            f"FPS: {fps:.1f} | Model: best.pt", 
+            f"FPS: {fps:.1f} | Model: YOLO11m-seg ({task})", 
             (20, 40), 
             cv2.FONT_HERSHEY_SIMPLEX, 
-            0.9, 
+            0.8, 
             (0, 255, 0), 
             2
         )
 
         # Print detections to terminal if anything found
         boxes = results[0].boxes
+        masks = getattr(results[0], "masks", None)
         if len(boxes) > 0:
             detected_items = []
-            for b in boxes:
+            for i, b in enumerate(boxes):
                 cls_name = results[0].names[int(b.cls[0].item())]
                 confidence = float(b.conf[0].item()) * 100
-                detected_items.append(f"{cls_name} ({confidence:.0f}%)")
+                has_mask = masks is not None and hasattr(masks, "xy") and len(masks.xy) > i and len(masks.xy[i]) >= 3
+                mask_tag = " [seg]" if has_mask else ""
+                detected_items.append(f"{cls_name} ({confidence:.0f}%{mask_tag})")
             # Clear line and print current detections
-            sys.stdout.write(f"\r🔍 In View: {', '.join(detected_items):<60}")
+            sys.stdout.write(f"\r🔍 In View: {', '.join(detected_items):<65}")
             sys.stdout.flush()
 
         # Display output window

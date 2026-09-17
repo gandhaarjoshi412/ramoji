@@ -80,14 +80,23 @@ def test_e2e_ai_scan_and_verification_workflow(auth_token):
     assert len(events) > 0
     event_id = events[0]["id"]
 
-    # 2. Create a test image in memory
-    img = Image.new("RGB", (640, 480), color=(180, 80, 40))
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG")
-    buf.seek(0)
+    # 2. Create or load a test food image
+    import os
+    sample_path = "backend/uploads/biryani_waste_scan.jpg"
+    if not os.path.exists(sample_path) and os.path.exists("uploads/biryani_waste_scan.jpg"):
+        sample_path = "uploads/biryani_waste_scan.jpg"
+
+    if os.path.exists(sample_path):
+        with open(sample_path, "rb") as f:
+            file_bytes = f.read()
+    else:
+        img = Image.new("RGB", (640, 480), color=(180, 80, 40))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG")
+        file_bytes = buf.getvalue()
 
     # 3. Submit scan
-    files = {"file": ("test_banquet_biryani.jpg", buf, "image/jpeg")}
+    files = {"file": ("test_banquet_biryani.jpg", file_bytes, "image/jpeg")}
     scan_res = client.post(f"/api/events/{event_id}/scan", files=files, headers=headers)
     assert scan_res.status_code == 201
     scan_data = scan_res.json()

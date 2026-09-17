@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     AI_MODE: str = os.getenv("AI_MODE", "yolo")  # "yolo" or "mock"
     AI_MODEL_PATH: str = os.getenv("AI_MODEL_PATH", "best.pt")
     AI_CONFIDENCE_THRESHOLD: float = float(os.getenv("AI_CONFIDENCE_THRESHOLD", "0.70"))
-    AI_MODEL_NAME: str = os.getenv("AI_MODEL_NAME", "YOLO26-seg")
-    AI_MODEL_VERSION: str = os.getenv("AI_MODEL_VERSION", "food-model-v0.1")
+    AI_MODEL_NAME: str = os.getenv("AI_MODEL_NAME", "YOLO11m-seg")
+    AI_MODEL_VERSION: str = os.getenv("AI_MODEL_VERSION", "foodwaste-merged15k-v1.0")
 
     # Storage Configuration
     STORAGE_PROVIDER: str = os.getenv("STORAGE_PROVIDER", "local")  # "local" or "s3"

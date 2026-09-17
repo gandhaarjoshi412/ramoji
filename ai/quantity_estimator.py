@@ -54,7 +54,8 @@ class QuantityEstimator:
         box_h = max(1.0, abs(y2 - y1))
         
         # If mask polygon exists, calculate polygon area using Shoelace formula
-        if detection.mask and isinstance(detection.mask, list) and len(detection.mask) >= 3:
+        has_mask = bool(detection.mask and isinstance(detection.mask, list) and len(detection.mask) >= 3)
+        if has_mask:
             pts = detection.mask
             shoelace = 0.0
             n = len(pts)
@@ -63,6 +64,8 @@ class QuantityEstimator:
                 shoelace += pts[i][0] * pts[j][1]
                 shoelace -= pts[j][0] * pts[i][1]
             pixel_area = abs(shoelace) / 2.0
+            if pixel_area < 1.0:
+                pixel_area = (math.pi / 4.0) * box_w * box_h
         else:
             # Elliptical / rectangular approximation
             pixel_area = (math.pi / 4.0) * box_w * box_h
@@ -91,8 +94,11 @@ class QuantityEstimator:
         # Clamp between configurable boundaries
         clamped_mass_g = max(min_weight_g, min(max_weight_g, raw_mass_g))
 
-        # Confidence based on detection confidence and bounding geometry
-        estimation_conf = min(0.92, max(0.55, detection.confidence * 0.85))
+        # Confidence based on whether true segmentation polygon mask or bounding box was used
+        if has_mask:
+            estimation_conf = min(0.95, max(0.60, detection.confidence * 0.90))
+        else:
+            estimation_conf = min(0.92, max(0.55, detection.confidence * 0.85))
 
         return QuantityEstimationResult(
             estimated_weight_grams=clamped_mass_g,

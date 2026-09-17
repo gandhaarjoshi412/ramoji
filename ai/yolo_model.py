@@ -7,11 +7,11 @@ from ai.model_interface import FoodVisionModel, VisionAnalysisResult, Detection
 
 class YoloFoodVisionModel(FoodVisionModel):
     """
-    Production implementation for YOLO model.
+    Production implementation for YOLO segmentation model.
     Loads model weights from AI_MODEL_PATH and extracts bounding boxes, classes,
     confidences, polygon segmentation masks, and annotated bounding-box visual image.
     """
-    def __init__(self, model_path: str = "ai/weights/yolo26-seg.pt"):
+    def __init__(self, model_path: str = "best.pt"):
         self.model_path = model_path
         self.model = None
         self._load_model()
@@ -22,10 +22,14 @@ class YoloFoodVisionModel(FoodVisionModel):
             os.path.join(os.getcwd(), self.model_path),
             os.path.join(os.path.dirname(os.path.dirname(__file__)), self.model_path),
             os.path.join(os.path.dirname(os.path.dirname(__file__)), "best.pt"),
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), "ai/weights/yolo11m-seg.pt"),
             os.path.join(os.path.dirname(os.path.dirname(__file__)), "ai/weights/yolo26-seg.pt"),
             os.path.join(os.getcwd(), "best.pt"),
+            os.path.join(os.getcwd(), "ai/weights/yolo11m-seg.pt"),
             os.path.join(os.getcwd(), "ai/weights/yolo26-seg.pt"),
             "/home/gandhaar/project/ramoji/best.pt",
+            "/home/gandhaar/project/ramoji/ai/weights/yolo11m-seg.pt",
+            "/home/gandhaar/kaggle/foodwaste_yolo11m_merged15k/weights/best.pt",
             "/home/gandhaar/project/ramoji/ai/weights/yolo26-seg.pt",
         ]
         for c in candidates:
@@ -38,7 +42,7 @@ class YoloFoodVisionModel(FoodVisionModel):
         if not os.path.exists(resolved_path):
             raise FileNotFoundError(
                 f"YOLO model weights not found at '{self.model_path}' (checked candidate: {resolved_path}). "
-                f"Please ensure best.pt or ai/weights/yolo26-seg.pt exists."
+                f"Please ensure best.pt exists."
             )
         try:
             from ultralytics import YOLO
@@ -62,14 +66,14 @@ class YoloFoodVisionModel(FoodVisionModel):
         img = Image.open(io.BytesIO(image_bytes))
         width, height = img.size
 
-        # Run inference
-        results = self.model(img)
+        # Run inference with high-resolution segmentation masks
+        results = self.model(img, retina_masks=True, conf=0.25)
         detections: List[Detection] = []
 
         annotated_bytes: Optional[bytes] = None
         for r in results:
             boxes = r.boxes
-            masks = r.masks
+            masks = getattr(r, "masks", None)
             for i, box in enumerate(boxes):
                 cls_id = int(box.cls[0].item())
                 class_name = r.names[cls_id] if hasattr(r, "names") else f"Class_{cls_id}"
@@ -77,8 +81,10 @@ class YoloFoodVisionModel(FoodVisionModel):
                 xyxy = box.xyxy[0].tolist()
 
                 mask_data = None
-                if masks is not None and len(masks.xy) > i:
-                    mask_data = masks.xy[i].tolist()
+                if masks is not None and hasattr(masks, "xy") and len(masks.xy) > i:
+                    poly = masks.xy[i]
+                    if len(poly) >= 3:
+                        mask_data = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in poly]
 
                 detections.append(
                     Detection(
@@ -89,17 +95,17 @@ class YoloFoodVisionModel(FoodVisionModel):
                     )
                 )
 
-        # Generate annotated image with bounding boxes, dish name, and confidence
+        # Generate annotated image with polygon masks, bounding boxes, dish name, and confidence
         if len(results) > 0:
             try:
                 import cv2
-                annotated_bgr = results[0].plot()
+                annotated_bgr = results[0].plot(masks=True, boxes=True, labels=True, conf=True)
                 success, encoded_img = cv2.imencode('.jpg', annotated_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
                 if success:
                     annotated_bytes = encoded_img.tobytes()
             except Exception:
                 try:
-                    annotated_bgr = results[0].plot()
+                    annotated_bgr = results[0].plot(masks=True, boxes=True, labels=True, conf=True)
                     annotated_rgb = annotated_bgr[:, :, ::-1]
                     annotated_pil = Image.fromarray(annotated_rgb)
                     buf = io.BytesIO()
@@ -112,8 +118,8 @@ class YoloFoodVisionModel(FoodVisionModel):
             detections=detections,
             image_width=width,
             image_height=height,
-            model_name="YOLO26-seg",
-            model_version="food-model-v0.1",
+            model_name="YOLO11m-seg",
+            model_version="foodwaste-merged15k-v1.0",
             is_mock=False,
             annotated_image_bytes=annotated_bytes
         )

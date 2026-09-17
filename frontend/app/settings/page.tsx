@@ -154,7 +154,7 @@ export default function SettingsPage() {
                       : "border-slate-200 bg-white hover:bg-slate-50"
                   }`}
                 >
-                  <div className="font-bold text-sm text-slate-900">YOLO26-seg (Neural Model)</div>
+                  <div className="font-bold text-sm text-slate-900">YOLO11m-seg (Neural Model)</div>
                   <div className="text-xs text-slate-500 font-normal mt-1 leading-relaxed">
                     Runs PyTorch/Ultralytics segmentation checkpoint from model weights file.
                   </div>

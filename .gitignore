@@ -70,3 +70,7 @@ uploads/*
 backend/uploads/*
 !backend/uploads/.gitkeep
 
+# Scratch and backup files
+scratch/
+*.bak
+

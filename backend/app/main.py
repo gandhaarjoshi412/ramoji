@@ -34,6 +34,11 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed_database(db)
+        from app.models.hotel import Hotel
+        from ai.food_classes import sync_food_catalog_for_hotel
+        hotel = db.query(Hotel).first()
+        if hotel:
+            sync_food_catalog_for_hotel(db, hotel.id)
     finally:
         db.close()
     yield

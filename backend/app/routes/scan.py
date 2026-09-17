@@ -170,21 +170,24 @@ async def scan_waste_image(
 
     is_low_confidence = confidence < settings.AI_CONFIDENCE_THRESHOLD
 
-    # 5. Match Food Item & Estimation Parameters
-    matched_food = (
-        db.query(FoodItem)
-        .filter(FoodItem.hotel_id == current_user.hotel_id, FoodItem.name.ilike(f"%{predicted_name}%"))
-        .first()
+    # 5. Match Food Item & Estimation Parameters using Segmentation Class Catalog
+    from ai.food_classes import resolve_food_metadata
+    matched_food, display_food_name, default_density, default_depth, default_cost_kg = resolve_food_metadata(
+        raw_name=predicted_name,
+        db=db,
+        hotel_id=current_user.hotel_id,
+        menu_hints=menu_hints
     )
+
     if not matched_food and len(event_foods) > 0 and event_foods[0].food_item:
         matched_food = event_foods[0].food_item
 
-    density = matched_food.density_g_per_cm3 if matched_food else 0.85
-    depth = matched_food.default_depth_cm if matched_food else 4.0
-    scaling = matched_food.portion_scaling_factor if matched_food else 1.0
-    calibration = matched_food.calibration_factor if matched_food else 1.0
-    min_w = matched_food.min_estimated_weight_g if matched_food else 20.0
-    max_w = matched_food.max_estimated_weight_g if matched_food else 25000.0
+    density = matched_food.density_g_per_cm3 if (matched_food and matched_food.density_g_per_cm3) else default_density
+    depth = matched_food.default_depth_cm if (matched_food and matched_food.default_depth_cm) else default_depth
+    scaling = matched_food.portion_scaling_factor if (matched_food and matched_food.portion_scaling_factor) else 1.0
+    calibration = matched_food.calibration_factor if (matched_food and matched_food.calibration_factor) else 1.0
+    min_w = matched_food.min_estimated_weight_g if (matched_food and matched_food.min_estimated_weight_g) else 20.0
+    max_w = matched_food.max_estimated_weight_g if (matched_food and matched_food.max_estimated_weight_g) else 25000.0
 
     # 6. Run Quantity Estimation
     from ai.model_interface import Detection
@@ -210,7 +213,7 @@ async def scan_waste_image(
     if matched_food:
         cost_per_g = FoodCostService.get_cost_per_gram_for_food(db, matched_food)
     else:
-        cost_per_g = 0.18
+        cost_per_g = round(default_cost_kg / 1000.0, 4)
 
     waste_cost = FoodCostService.calculate_estimated_waste_cost(
         quantity_result.estimated_weight_grams,
@@ -235,13 +238,13 @@ async def scan_waste_image(
         image_url=image_url,
         annotated_image_url=annotated_image_url,
         created_at=datetime.now(timezone.utc),
-        ai_food_prediction=predicted_name,
+        ai_food_prediction=display_food_name,
         ai_confidence=confidence,
         bounding_box=json.dumps(bbox) if bbox else None,
         segmentation_mask=json.dumps(mask) if mask else None,
         estimated_weight_grams=quantity_result.estimated_weight_grams,
         estimation_confidence=quantity_result.estimation_confidence,
-        measurement_method="camera_estimate",
+        measurement_method=quantity_result.estimation_method,
         cost_per_gram=cost_per_g,
         estimated_waste_cost=waste_cost,
         ai_model_name=analysis_result.model_name,

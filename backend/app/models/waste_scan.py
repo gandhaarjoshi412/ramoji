@@ -29,8 +29,8 @@ class WasteScan(Base):
     estimated_waste_cost = Column(Float, nullable=False, default=0.0)
 
     # Model Tracking & Versioning
-    ai_model_name = Column(String(100), default="YOLO26-seg", nullable=False)
-    ai_model_version = Column(String(100), default="food-model-v0.1", nullable=False)
+    ai_model_name = Column(String(100), default="YOLO11m-seg", nullable=False)
+    ai_model_version = Column(String(100), default="foodwaste-merged15k-v1.0", nullable=False)
 
     # Human Verification & Continuous Learning
     human_verified = Column(Boolean, default=False, nullable=False)
