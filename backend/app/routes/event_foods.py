@@ -25,12 +25,32 @@ class AddEventFoodPayload(BaseModel):
     estimated_cost_per_kg: float = Field(default=0.0, ge=0.0)
     notes: Optional[str] = None
 
+from app.services.event_sync import sync_event_scans_to_event_foods
+
 def build_event_food_response(ef: EventFood) -> EventFoodResponse:
-    total_waste = sum(float(w.net_weight_kg) for w in ef.waste_records)
+    scale_waste = sum(float(w.net_weight_kg) for w in ef.waste_records)
     prep = float(ef.prepared_weight_kg or 0.0)
     cost_kg = float(ef.estimated_cost_per_kg or 0.0)
+
+    # Camera waste scans
+    scans_for_item = [
+        s for s in getattr(getattr(ef, "event", None), "waste_scans", [])
+        if s.food_item_id == ef.food_item_id
+    ] if getattr(ef, "event", None) else []
+    scan_waste = sum(s.final_weight_grams / 1000.0 for s in scans_for_item)
+    scan_cost = sum(s.final_waste_cost for s in scans_for_item)
+
+    if scan_waste > 0 and scale_waste == 0:
+        total_waste = scan_waste
+        cost = scan_cost
+    elif scale_waste > 0 and scan_waste == 0:
+        total_waste = scale_waste
+        cost = calculate_waste_cost(total_waste, cost_kg)
+    else:
+        total_waste = scan_waste + scale_waste
+        cost = scan_cost + calculate_waste_cost(scale_waste, cost_kg)
+
     waste_pct = calculate_waste_percentage(total_waste, prep)
-    cost = calculate_waste_cost(total_waste, cost_kg)
 
     waste_records_resp = [
         WasteRecordResponse(
@@ -67,7 +87,7 @@ def build_event_food_response(ef: EventFood) -> EventFoodResponse:
         notes=ef.notes,
         net_waste_kg=round(total_waste, 2),
         waste_percentage=waste_pct,
-        waste_cost=cost,
+        waste_cost=round(cost, 2),
         waste_records=waste_records_resp,
     )
 
@@ -81,12 +101,15 @@ def get_event_foods(
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
+    sync_event_scans_to_event_foods(db, event_id)
+
     foods = (
         db.query(EventFood)
         .filter(EventFood.event_id == event_id)
         .options(
             joinedload(EventFood.food_item),
-            joinedload(EventFood.waste_records).joinedload(WasteRecord.recorder)
+            joinedload(EventFood.waste_records).joinedload(WasteRecord.recorder),
+            joinedload(EventFood.event).joinedload(Event.waste_scans)
         )
         .all()
     )

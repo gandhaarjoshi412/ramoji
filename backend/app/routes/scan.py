@@ -260,6 +260,8 @@ async def scan_waste_image(
 
     db.commit()
     db.refresh(scan)
+    from app.services.event_sync import sync_event_scans_to_event_foods
+    sync_event_scans_to_event_foods(db, event_id)
     return build_scan_response(scan)
 
 @router.get("/api/events/{event_id}/scans", response_model=List[WasteScanResponse])
@@ -330,6 +332,8 @@ def verify_or_correct_scan(
 
     db.commit()
     db.refresh(scan)
+    from app.services.event_sync import sync_event_scans_to_event_foods
+    sync_event_scans_to_event_foods(db, scan.event_id)
     return build_scan_response(scan)
 
 @router.put("/api/events/{event_id}/scans/{id}", response_model=WasteScanResponse)

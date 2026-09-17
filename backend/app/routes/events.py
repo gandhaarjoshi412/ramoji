@@ -20,13 +20,44 @@ from app.services.calculation import (
     calculate_event_summary,
     calculate_waste_percentage,
     calculate_waste_cost,
+    calculate_waste_per_guest,
 )
+from app.services.event_sync import sync_event_scans_to_event_foods
 from app.utils.security import get_current_user
 
 router = APIRouter(prefix="/api/events", tags=["Events"])
 
 def build_event_list_item(event: Event) -> EventListItemResponse:
-    summary = calculate_event_summary(event.event_foods, event.actual_guests)
+    # Scale records waste
+    scale_waste_kg = sum(
+        float(w.net_weight_kg)
+        for ef in getattr(event, "event_foods", [])
+        for w in getattr(ef, "waste_records", [])
+    )
+    scale_waste_cost = sum(
+        float(w.net_weight_kg) * float(ef.estimated_cost_per_kg or 0.0)
+        for ef in getattr(event, "event_foods", [])
+        for w in getattr(ef, "waste_records", [])
+    )
+    # Camera AI waste scans
+    scan_waste_kg = sum(s.final_weight_grams / 1000.0 for s in getattr(event, "waste_scans", []))
+    scan_waste_cost = sum(s.final_waste_cost for s in getattr(event, "waste_scans", []))
+
+    if scan_waste_kg > 0 and scale_waste_kg == 0:
+        total_waste_kg = round(scan_waste_kg, 2)
+        total_waste_cost = round(scan_waste_cost, 2)
+    elif scale_waste_kg > 0 and scan_waste_kg == 0:
+        total_waste_kg = round(scale_waste_kg, 2)
+        total_waste_cost = round(scale_waste_cost, 2)
+    else:
+        total_waste_kg = round(scan_waste_kg + scale_waste_kg, 2)
+        total_waste_cost = round(scan_waste_cost + scale_waste_cost, 2)
+
+    total_prepared_kg = round(sum(float(ef.prepared_weight_kg or 0.0) for ef in getattr(event, "event_foods", [])), 2)
+    waste_percentage = calculate_waste_percentage(total_waste_kg, total_prepared_kg)
+    waste_per_guest_kg = calculate_waste_per_guest(total_waste_kg, event.actual_guests)
+    waste_per_guest_grams = round(waste_per_guest_kg * 1000.0, 1)
+
     return EventListItemResponse(
         id=event.id,
         hotel_id=event.hotel_id,
@@ -40,26 +71,42 @@ def build_event_list_item(event: Event) -> EventListItemResponse:
         notes=event.notes,
         created_at=event.created_at,
         updated_at=event.updated_at,
-        total_prepared_kg=summary["total_prepared_kg"],
-        total_waste_kg=summary["total_waste_kg"],
-        waste_percentage=summary["overall_waste_percentage"],
-        total_waste_cost=summary["total_waste_cost"],
-        waste_per_guest_kg=summary["waste_per_guest_kg"],
-        waste_per_guest_grams=summary["waste_per_guest_grams"],
-        food_items_count=summary["items_count"],
+        total_prepared_kg=total_prepared_kg,
+        total_waste_kg=total_waste_kg,
+        waste_percentage=waste_percentage,
+        total_waste_cost=total_waste_cost,
+        waste_per_guest_kg=waste_per_guest_kg,
+        waste_per_guest_grams=waste_per_guest_grams,
+        food_items_count=len(getattr(event, "event_foods", [])),
     )
 
 def build_event_detail(event: Event) -> EventDetailResponse:
-    summary = calculate_event_summary(event.event_foods, event.actual_guests)
-    
     event_foods_response: List[EventFoodResponse] = []
     for ef in event.event_foods:
         food_item = ef.food_item
-        total_item_waste = sum(float(w.net_weight_kg) for w in ef.waste_records)
         prep = float(ef.prepared_weight_kg or 0.0)
         cost_kg = float(ef.estimated_cost_per_kg or 0.0)
+
+        # Scale waste records
+        scale_waste = sum(float(w.net_weight_kg) for w in ef.waste_records)
+        scale_cost = sum(float(w.net_weight_kg) * cost_kg for w in ef.waste_records)
+
+        # Camera AI waste scans
+        scans_for_item = [s for s in getattr(event, "waste_scans", []) if s.food_item_id == ef.food_item_id]
+        scan_waste = sum(s.final_weight_grams / 1000.0 for s in scans_for_item)
+        scan_cost = sum(s.final_waste_cost for s in scans_for_item)
+
+        if scan_waste > 0 and scale_waste == 0:
+            total_item_waste = scan_waste
+            item_cost = scan_cost
+        elif scale_waste > 0 and scan_waste == 0:
+            total_item_waste = scale_waste
+            item_cost = scale_cost
+        else:
+            total_item_waste = scan_waste + scale_waste
+            item_cost = scan_cost + scale_cost
+
         waste_pct = calculate_waste_percentage(total_item_waste, prep)
-        item_cost = calculate_waste_cost(total_item_waste, cost_kg)
 
         waste_records_resp = [
             WasteRecordResponse(
@@ -97,10 +144,17 @@ def build_event_detail(event: Event) -> EventDetailResponse:
                 notes=ef.notes,
                 net_waste_kg=round(total_item_waste, 2),
                 waste_percentage=waste_pct,
-                waste_cost=item_cost,
+                waste_cost=round(item_cost, 2),
                 waste_records=waste_records_resp,
             )
         )
+
+    total_prepared_kg = round(sum(float(ef.prepared_weight_kg or 0.0) for ef in event.event_foods), 2)
+    total_waste_kg = round(sum(ef_r.net_waste_kg for ef_r in event_foods_response), 2)
+    total_waste_cost = round(sum(ef_r.waste_cost for ef_r in event_foods_response), 2)
+    overall_waste_percentage = calculate_waste_percentage(total_waste_kg, total_prepared_kg)
+    waste_per_guest_kg = calculate_waste_per_guest(total_waste_kg, event.actual_guests)
+    waste_per_guest_grams = round(waste_per_guest_kg * 1000.0, 1)
 
     return EventDetailResponse(
         id=event.id,
@@ -115,13 +169,13 @@ def build_event_detail(event: Event) -> EventDetailResponse:
         notes=event.notes,
         created_at=event.created_at,
         updated_at=event.updated_at,
-        total_prepared_kg=summary["total_prepared_kg"],
-        total_waste_kg=summary["total_waste_kg"],
-        waste_percentage=summary["overall_waste_percentage"],
-        total_waste_cost=summary["total_waste_cost"],
-        waste_per_guest_kg=summary["waste_per_guest_kg"],
-        waste_per_guest_grams=summary["waste_per_guest_grams"],
-        food_items_count=summary["items_count"],
+        total_prepared_kg=total_prepared_kg,
+        total_waste_kg=total_waste_kg,
+        waste_percentage=overall_waste_percentage,
+        total_waste_cost=total_waste_cost,
+        waste_per_guest_kg=waste_per_guest_kg,
+        waste_per_guest_grams=waste_per_guest_grams,
+        food_items_count=len(event_foods_response),
         event_foods=event_foods_response,
     )
 
@@ -140,7 +194,8 @@ def get_events(
         .filter(Event.hotel_id == current_user.hotel_id)
         .options(
             joinedload(Event.event_foods)
-            .joinedload(EventFood.waste_records)
+            .joinedload(EventFood.waste_records),
+            joinedload(Event.waste_scans),
         )
     )
 
@@ -156,6 +211,15 @@ def get_events(
         query = query.filter(Event.name.ilike(f"%{search.strip()}%"))
 
     events = query.order_by(Event.event_date.desc(), Event.id.desc()).all()
+    # Auto-sync any events that have scans but no event_foods
+    synced_any = False
+    for e in events:
+        if e.waste_scans and not e.event_foods:
+            sync_event_scans_to_event_foods(db, e.id)
+            synced_any = True
+    if synced_any:
+        events = query.order_by(Event.event_date.desc(), Event.id.desc()).all()
+
     return [build_event_list_item(e) for e in events]
 
 @router.post("", response_model=EventDetailResponse, status_code=status.HTTP_201_CREATED)
@@ -189,6 +253,9 @@ def get_event(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    # Auto-sync any camera waste scans to banquet event menu items and yield metrics
+    sync_event_scans_to_event_foods(db, event_id)
+
     event = (
         db.query(Event)
         .filter(Event.id == event_id, Event.hotel_id == current_user.hotel_id)
@@ -198,6 +265,7 @@ def get_event(
             joinedload(Event.event_foods)
             .joinedload(EventFood.waste_records)
             .joinedload(WasteRecord.recorder),
+            joinedload(Event.waste_scans),
         )
         .first()
     )

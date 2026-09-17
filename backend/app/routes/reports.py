@@ -7,13 +7,13 @@ from app.models.user import User
 from app.models.event import Event
 from app.models.event_food import EventFood
 from app.models.waste_record import WasteRecord
-from app.schemas.report import EventReportResponse, ReportFoodItem
-from app.schemas.report import WasteReasonSummary
+from app.schemas.report import EventReportResponse, ReportFoodItem, WasteReasonSummary
 from app.services.calculation import (
-    calculate_event_summary,
     calculate_waste_percentage,
     calculate_waste_cost,
+    calculate_waste_per_guest,
 )
+from app.services.event_sync import sync_event_scans_to_event_foods
 from app.utils.security import get_current_user
 
 router = APIRouter(prefix="/api/events/{event_id}/report", tags=["Reports"])
@@ -24,6 +24,9 @@ def get_event_report(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    # Auto-sync any camera waste scans to banquet event foods
+    sync_event_scans_to_event_foods(db, event_id)
+
     event = (
         db.query(Event)
         .filter(Event.id == event_id, Event.hotel_id == current_user.hotel_id)
@@ -31,13 +34,12 @@ def get_event_report(
             joinedload(Event.hotel),
             joinedload(Event.event_foods).joinedload(EventFood.food_item),
             joinedload(Event.event_foods).joinedload(EventFood.waste_records),
+            joinedload(Event.waste_scans),
         )
         .first()
     )
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-
-    summary = calculate_event_summary(event.event_foods, event.actual_guests)
 
     food_breakdown = []
     reasons_map = {}
@@ -47,11 +49,29 @@ def get_event_report(
         fcat = ef.food_item.category if ef.food_item else "Other"
         prep = float(ef.prepared_weight_kg or 0.0)
         cost_kg = float(ef.estimated_cost_per_kg or 0.0)
-        item_waste = sum(float(w.net_weight_kg) for w in ef.waste_records)
-        waste_pct = calculate_waste_percentage(item_waste, prep)
-        item_cost = calculate_waste_cost(item_waste, cost_kg)
+        
+        # Scale waste records
+        scale_waste = sum(float(w.net_weight_kg) for w in ef.waste_records)
+        scale_cost = calculate_waste_cost(scale_waste, cost_kg)
 
-        primary_reason = ef.waste_records[0].waste_reason if ef.waste_records else None
+        # Camera AI waste scans
+        scans_for_item = [s for s in getattr(event, "waste_scans", []) if s.food_item_id == ef.food_item_id]
+        scan_waste = sum(s.final_weight_grams / 1000.0 for s in scans_for_item)
+        scan_cost = sum(s.final_waste_cost for s in scans_for_item)
+
+        if scan_waste > 0 and scale_waste == 0:
+            item_waste = scan_waste
+            item_cost = scan_cost
+        elif scale_waste > 0 and scan_waste == 0:
+            item_waste = scale_waste
+            item_cost = scale_cost
+        else:
+            item_waste = scan_waste + scale_waste
+            item_cost = scan_cost + scale_cost
+
+        waste_pct = calculate_waste_percentage(item_waste, prep)
+
+        primary_reason = ef.waste_records[0].waste_reason if ef.waste_records else ("Camera AI Scan" if scans_for_item else None)
 
         food_breakdown.append(
             ReportFoodItem(
@@ -61,7 +81,7 @@ def get_event_report(
                 leftover_kg=round(item_waste, 2),
                 waste_percentage=waste_pct,
                 cost_per_kg=cost_kg,
-                waste_cost=item_cost,
+                waste_cost=round(item_cost, 2),
                 primary_reason=primary_reason,
                 notes=ef.notes,
             )
@@ -74,7 +94,20 @@ def get_event_report(
             reasons_map[r]["waste"] += float(w.net_weight_kg)
             reasons_map[r]["count"] += 1
 
-    total_waste_kg = summary["total_waste_kg"]
+        if scans_for_item and not ef.waste_records:
+            r = "Over-preparation / Leftover Buffet"
+            if r not in reasons_map:
+                reasons_map[r] = {"waste": 0.0, "count": 0}
+            reasons_map[r]["waste"] += scan_waste
+            reasons_map[r]["count"] += len(scans_for_item)
+
+    total_prepared_kg = round(sum(f.prepared_kg for f in food_breakdown), 2)
+    total_waste_kg = round(sum(f.leftover_kg for f in food_breakdown), 2)
+    total_waste_cost = round(sum(f.waste_cost for f in food_breakdown), 2)
+    overall_waste_percentage = calculate_waste_percentage(total_waste_kg, total_prepared_kg)
+    waste_per_guest_kg = calculate_waste_per_guest(total_waste_kg, event.actual_guests)
+    waste_per_guest_grams = round(waste_per_guest_kg * 1000.0, 1)
+
     reasons_breakdown = []
     for r_name, r_val in sorted(reasons_map.items(), key=lambda x: x[1]["waste"], reverse=True):
         reasons_breakdown.append(
@@ -98,12 +131,12 @@ def get_event_report(
         expected_guests=event.expected_guests,
         actual_guests=event.actual_guests,
         status=event.status,
-        total_food_prepared_kg=summary["total_prepared_kg"],
-        total_food_waste_kg=summary["total_waste_kg"],
-        waste_rate_percentage=summary["overall_waste_percentage"],
-        waste_per_guest_grams=summary["waste_per_guest_grams"],
-        waste_per_guest_kg=summary["waste_per_guest_kg"],
-        estimated_waste_cost=summary["total_waste_cost"],
+        total_food_prepared_kg=total_prepared_kg,
+        total_food_waste_kg=total_waste_kg,
+        waste_rate_percentage=overall_waste_percentage,
+        waste_per_guest_grams=waste_per_guest_grams,
+        waste_per_guest_kg=waste_per_guest_kg,
+        estimated_waste_cost=total_waste_cost,
         food_breakdown=food_breakdown,
         waste_reasons_breakdown=reasons_breakdown,
     )
