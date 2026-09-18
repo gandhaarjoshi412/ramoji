@@ -12,6 +12,8 @@ import {
   Printer,
   PieChart,
   ChevronRight,
+  Sparkles,
+  CheckCircle,
 } from "lucide-react";
 
 export default function EventAnalyticsPage() {
@@ -37,7 +39,7 @@ export default function EventAnalyticsPage() {
   if (loading) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center space-y-3">
-        <div className="w-8 h-8 rounded-full border-3 border-slate-200 border-t-[#0f2942] animate-spin" />
+        <div className="w-8 h-8 rounded-full border-3 border-slate-200 border-t-emerald-600 animate-spin" />
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Aggregating Vision Analytics...</p>
       </div>
     );
@@ -59,11 +61,11 @@ export default function EventAnalyticsPage() {
   return (
     <div className="max-w-5xl mx-auto space-y-8 pb-16">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/80 pb-5">
         <div className="flex items-center gap-3.5">
           <Link
             href={`/events/${eventId}`}
-            className="p-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition-colors shadow-2xs"
+            className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 transition-all shadow-2xs active:scale-95"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
@@ -72,7 +74,7 @@ export default function EventAnalyticsPage() {
               <h1 className="font-serif text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
                 {data.event_name}
               </h1>
-              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 uppercase tracking-wider">
+              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200 uppercase tracking-wider">
                 {data.event_type}
               </span>
             </div>
@@ -85,15 +87,15 @@ export default function EventAnalyticsPage() {
         <div className="flex items-center gap-2.5">
           <button
             onClick={() => window.print()}
-            className="hotel-btn-secondary text-xs py-2"
+            className="hotel-btn-secondary text-xs py-2 active:scale-95"
           >
-            <Printer className="w-3.5 h-3.5" />
+            <Printer className="w-3.5 h-3.5 text-slate-500" />
             Print Summary
           </button>
 
           <Link
             href={`/events/${eventId}/scan`}
-            className="hotel-btn-gold text-xs py-2"
+            className="hotel-btn-emerald text-xs py-2 active:scale-95"
           >
             <Camera className="w-4 h-4" />
             Scan Leftover Dish
@@ -103,77 +105,77 @@ export default function EventAnalyticsPage() {
 
       {/* Metric Cards Grid */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="hotel-card p-5">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">Total Scans</span>
+        <div className="hotel-card p-5 bg-white border border-slate-200/80">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Total Scans</span>
           <div className="text-2xl font-bold text-slate-900">{data.total_scans_count}</div>
-          <span className="text-[11px] text-slate-400 font-normal mt-1 block">Logged photographs</span>
+          <span className="text-[11px] text-slate-400 font-normal mt-1 block">Optical dish photos</span>
         </div>
 
-        <div className="hotel-card p-5">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">Est. Waste</span>
-          <div className="text-2xl font-bold text-[#881337]">{data.total_estimated_waste_kg} kg</div>
+        <div className="hotel-card p-5 bg-white border border-slate-200/80">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Est. Waste</span>
+          <div className="text-2xl font-bold text-rose-600">{data.total_estimated_waste_kg} kg</div>
           <span className="text-[11px] text-slate-400 font-normal mt-1 block">({data.total_estimated_waste_grams.toLocaleString()} g)</span>
         </div>
 
-        <div className="hotel-card p-5">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">Production Loss</span>
-          <div className="text-2xl font-bold text-[#c2410c]">{formatINR(data.total_estimated_waste_cost)}</div>
+        <div className="hotel-card p-5 bg-white border border-slate-200/80">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Production Loss</span>
+          <div className="text-2xl font-bold text-slate-900">{formatINR(data.total_estimated_waste_cost)}</div>
           <span className="text-[11px] text-slate-400 font-normal mt-1 block">From raw recipes</span>
         </div>
 
-        <div className="hotel-card p-5">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">Waste / Guest</span>
+        <div className="hotel-card p-5 bg-white border border-slate-200/80">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Waste / Guest</span>
           <div className="text-2xl font-bold text-slate-900">{data.waste_per_guest_grams} <span className="text-xs font-normal text-slate-500">g</span></div>
           <span className="text-[11px] text-slate-400 font-normal mt-1 block">Per attendee served</span>
         </div>
 
-        <div className="hotel-card p-5">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">AI Accuracy</span>
-          <div className="text-2xl font-bold text-[#064e3b]">{data.average_ai_confidence}%</div>
-          <span className="text-[11px] text-slate-400 font-normal mt-1 block">{data.human_corrections_count} verified edits</span>
+        <div className="hotel-card p-5 bg-white border border-slate-200/80">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">AI Accuracy</span>
+          <div className="text-2xl font-bold text-emerald-600">{data.average_ai_confidence}%</div>
+          <span className="text-[11px] text-slate-400 font-normal mt-1 block">{data.human_corrections_count} verified audits</span>
         </div>
       </div>
 
       {/* Food Breakdown Table */}
-      <div className="hotel-card overflow-hidden">
+      <div className="hotel-card overflow-hidden bg-white border border-slate-200/80 shadow-card">
         <div className="p-5 border-b border-slate-100 flex items-center justify-between">
           <div>
             <h2 className="font-serif text-lg font-bold text-slate-900 flex items-center gap-2">
-              <PieChart className="w-5 h-5 text-[#b48324]" />
+              <PieChart className="w-5 h-5 text-emerald-600" />
               Dish Leftover Breakdown
             </h2>
-            <p className="text-xs text-slate-500 font-normal">Camera estimated volume and ingredient batch cost calculations</p>
+            <p className="text-xs text-slate-500 font-normal">Optical volume and ingredient batch cost calculations</p>
           </div>
-          <span className="text-[11px] font-bold text-slate-700 bg-slate-100 px-3 py-1 rounded-md border border-slate-200">
+          <span className="text-[11px] font-bold text-slate-700 bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
             {data.food_breakdown.length} Dishes
           </span>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold uppercase text-slate-500 tracking-wider">
+            <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-bold uppercase text-slate-500 tracking-wider">
               <tr>
-                <th className="py-3.5 px-6">Food Item</th>
+                <th className="py-3.5 px-6">Food Dish</th>
                 <th className="py-3.5 px-4">Category</th>
                 <th className="py-3.5 px-4 text-center">Scans</th>
                 <th className="py-3.5 px-4 text-right">Est. Waste (kg)</th>
                 <th className="py-3.5 px-4 text-right">Est. Weight (g)</th>
-                <th className="py-3.5 px-6 text-right">Cost Loss (INR)</th>
+                <th className="py-3.5 px-6 text-right">Cost Loss</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {data.food_breakdown.map((item, idx) => (
-                <tr key={idx} className="hover:bg-slate-50/60 transition-colors">
+                <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
                   <td className="py-4 px-6 font-bold text-slate-900">{item.food_name}</td>
                   <td className="py-4 px-4">
-                    <span className="inline-block px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                    <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
                       {item.category}
                     </span>
                   </td>
                   <td className="py-4 px-4 text-center text-xs font-bold text-slate-700">
                     {item.scans_count}
                   </td>
-                  <td className="py-4 px-4 text-right font-bold text-[#881337]">
+                  <td className="py-4 px-4 text-right font-bold text-rose-600">
                     {item.total_waste_kg} kg
                   </td>
                   <td className="py-4 px-4 text-right font-semibold text-slate-800">
@@ -197,28 +199,28 @@ export default function EventAnalyticsPage() {
         </div>
       </div>
 
-      {/* Scans Gallery with AI Predictions vs Corrections */}
-      <div className="hotel-card overflow-hidden">
+      {/* Scans Gallery with Visual Logs */}
+      <div className="hotel-card overflow-hidden bg-white border border-slate-200/80 shadow-card">
         <div className="p-5 border-b border-slate-100">
           <h2 className="font-serif text-lg font-bold text-slate-900 flex items-center gap-2">
-            <Camera className="w-5 h-5 text-[#b48324]" />
-            Visual Proof & Camera Audit Logs
+            <Camera className="w-5 h-5 text-emerald-600" />
+            Visual Audit Logs & Optical Evidence
           </h2>
           <p className="text-xs text-slate-500 font-normal">Visual proof of leftovers, optical confidence ratings, and staff verifications</p>
         </div>
 
         <div className="divide-y divide-slate-100">
           {data.scans.map((scan) => (
-            <div key={scan.id} className="p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-slate-50/60 transition-colors">
+            <div key={scan.id} className="p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-slate-50/70 transition-colors">
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-xl bg-slate-100 overflow-hidden border border-slate-200 shrink-0 shadow-2xs relative">
+                <div className="w-16 h-16 rounded-xl bg-slate-950 overflow-hidden border border-slate-200 shrink-0 shadow-2xs relative">
                   <img src={scan.image_url} alt={scan.final_food_name} className="w-full h-full object-cover" />
                 </div>
                 <div>
                   <div className="font-bold text-slate-900 text-sm flex items-center gap-2 flex-wrap">
                     <span>{scan.final_food_name}</span>
                     {scan.human_food_correction && (
-                      <span className="text-[10px] font-bold bg-amber-50 text-[#966814] px-2 py-0.5 rounded-md border border-amber-200">
+                      <span className="text-[10px] font-bold bg-amber-50 text-amber-800 px-2 py-0.5 rounded-full border border-amber-200">
                         Staff Overridden (AI: {scan.ai_food_prediction})
                       </span>
                     )}
@@ -240,10 +242,10 @@ export default function EventAnalyticsPage() {
                 <div className="text-base font-bold text-slate-900">
                   {scan.final_weight_grams} g
                 </div>
-                <div className="text-xs font-bold text-[#881337]">
+                <div className="text-xs font-bold text-rose-600">
                   {formatINR(scan.final_waste_cost)}
                 </div>
-                <div className="text-[10px] text-slate-400 font-medium">
+                <div className="text-[10px] text-slate-400 font-medium font-mono">
                   (₹{scan.cost_per_gram.toFixed(3)}/g)
                 </div>
               </div>

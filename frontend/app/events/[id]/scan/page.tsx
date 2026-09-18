@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
-import { apiRequest, formatINR } from "@/lib/api";
+import { apiRequest } from "@/lib/api";
 import { EventDetail, WasteScan, FoodItem } from "@/types";
 import {
   Camera,
@@ -15,18 +15,16 @@ import {
   Edit3,
   RotateCcw,
   ArrowLeft,
-  DollarSign,
   ChevronRight,
   Info,
-  ScanLine,
   Zap,
   Save,
   Check,
   SwitchCamera,
   Layers,
-  Eye,
-  EyeOff,
   Image as ImageIcon,
+  ScanLine,
+  Eye,
 } from "lucide-react";
 
 export default function WasteScannerPage() {
@@ -111,8 +109,8 @@ export default function WasteScannerPage() {
       console.error("Camera access error:", err);
       setCameraError(
         err.name === "NotAllowedError"
-          ? "Camera permission denied. Please allow camera permissions in your browser or use image upload."
-          : "Could not access camera device. Please connect a webcam or use the upload button."
+          ? "Camera permission denied. Please enable camera access in your browser settings or use the file upload option."
+          : "Could not initialize camera device. Please attach a camera or use high-resolution file upload."
       );
       setIsCameraActive(false);
     }
@@ -144,15 +142,19 @@ export default function WasteScannerPage() {
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    canvas.toBlob((blob) => {
-      if (blob) {
-        setCapturedImageBlob(blob);
-        const previewUrl = URL.createObjectURL(blob);
-        setImagePreviewUrl(previewUrl);
-        stopCamera();
-        processScan(blob);
-      }
-    }, "image/jpeg", 0.92);
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          setCapturedImageBlob(blob);
+          const previewUrl = URL.createObjectURL(blob);
+          setImagePreviewUrl(previewUrl);
+          stopCamera();
+          processScan(blob);
+        }
+      },
+      "image/jpeg",
+      0.92
+    );
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -179,7 +181,7 @@ export default function WasteScannerPage() {
 
   const processScan = async (fileBlob: Blob) => {
     setStage("uploading");
-    setStageMessage("Transmitting high-resolution dish image...");
+    setStageMessage("Transmitting high-resolution dish capture...");
     setErrorMessage(null);
 
     const formData = new FormData();
@@ -187,7 +189,7 @@ export default function WasteScannerPage() {
 
     try {
       setStage("analyzing");
-      setStageMessage("Running YOLO food classification & volumetric waste estimation...");
+      setStageMessage("Segmenting dish contours & running YOLO classification...");
 
       const scan = await apiRequest<WasteScan>(`/api/events/${eventId}/scan`, {
         method: "POST",
@@ -241,7 +243,7 @@ export default function WasteScannerPage() {
     setStage("confirmed");
     setTimeout(() => {
       router.push(`/events/${eventId}`);
-    }, 1500);
+    }, 1200);
   };
 
   const handleReset = () => {
@@ -270,7 +272,6 @@ export default function WasteScannerPage() {
     return `${apiUrl}${url.startsWith("/") ? "" : "/"}${url}`;
   };
 
-  // Determine which image to show: Annotated YOLO bounding-box vs Original
   const matchedFoodItem = catalog.find(
     (f) =>
       f.id === scanResult?.food_item_id ||
@@ -286,8 +287,10 @@ export default function WasteScannerPage() {
       ? getFullImageUrl(scanResult.image_url)
       : imagePreviewUrl;
 
+  const confidencePercent = scanResult ? Math.round(scanResult.ai_confidence * 100) : 0;
+
   return (
-    <div className="max-w-3xl mx-auto space-y-6 pb-16">
+    <div className="max-w-4xl mx-auto space-y-6 pb-16">
       {/* Hidden File Input & Canvas */}
       <input
         type="file"
@@ -298,54 +301,63 @@ export default function WasteScannerPage() {
       />
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-200 pb-5">
-        <div className="flex items-center gap-3">
+      {/* Modern Executive Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/80 pb-5">
+        <div className="flex items-center gap-3.5">
           <Link
             href={`/events/${eventId}`}
-            className="p-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition-colors shadow-2xs"
+            className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 transition-all shadow-2xs active:scale-95"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <div>
-            <h1 className="font-serif text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
-              AI Food Waste Scanner
-            </h1>
-            <p className="text-xs text-slate-500 font-normal">
-              {event?.name ? `Banquet Audit: ${event.name}` : "Optical volumetric food waste analysis"}
+            <div className="flex items-center gap-2">
+              <h1 className="font-serif text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+                AI Optical Waste Scanner
+              </h1>
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 uppercase tracking-wide">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Live Vision
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">
+              {event?.name ? `Banquet Audit: ${event.name}` : "Volumetric leftover estimation & yield logging"}
             </p>
           </div>
         </div>
 
         {stage !== "idle" && (
-          <button onClick={handleReset} className="hotel-btn-secondary text-xs py-1.5 px-3">
-            <RotateCcw className="w-3.5 h-3.5" />
+          <button
+            onClick={handleReset}
+            className="hotel-btn-secondary text-xs self-start sm:self-auto active:scale-95"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
             New Scan
           </button>
         )}
       </div>
 
-      {/* Camera Error Banner */}
+      {/* Camera Access Error Alert */}
       {cameraError && (
-        <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-medium flex items-start gap-3">
+        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-900 text-xs font-medium flex items-start gap-3 shadow-2xs">
           <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
           <div className="flex-1">
-            <p>{cameraError}</p>
+            <p className="font-semibold">{cameraError}</p>
           </div>
           <button
             onClick={() => setCameraError(null)}
-            className="text-amber-700 hover:text-amber-900 text-xs font-bold underline"
+            className="text-amber-700 hover:text-amber-900 text-xs font-bold underline cursor-pointer"
           >
             Dismiss
           </button>
         </div>
       )}
 
-      {/* Main Scanner Container */}
-      <div className="hotel-card overflow-hidden">
-        {/* Live Camera View */}
+      {/* Main Scanner Terminal Card */}
+      <div className="hotel-card overflow-hidden bg-white border border-slate-200/80 shadow-card">
+        {/* Live Camera Viewport */}
         {isCameraActive && (
-          <div className="relative aspect-4/3 bg-black flex items-center justify-center overflow-hidden">
+          <div className="relative aspect-4/3 sm:aspect-16/9 bg-slate-950 flex items-center justify-center overflow-hidden">
             <video
               ref={videoRef}
               playsInline
@@ -354,84 +366,98 @@ export default function WasteScannerPage() {
               className="w-full h-full object-cover"
             />
 
-            {/* Viewfinder Reticle with Warm Bronze Corners */}
-            <div className="absolute inset-8 pointer-events-none border-2 border-white/20 rounded-xl flex items-center justify-center">
-              <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-[#b48324] rounded-tl-lg" />
-              <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-[#b48324] rounded-tr-lg" />
-              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-[#b48324] rounded-bl-lg" />
-              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-[#b48324] rounded-br-lg" />
-              <div className="text-center space-y-1">
-                <span className="text-[11px] font-bold text-[#f4d89a] uppercase tracking-widest bg-black/70 px-3.5 py-1.5 rounded-md backdrop-blur-md border border-white/10 inline-block shadow-lg">
-                  Align Chafing Dish or Platter
+            {/* High-Tech Optical Viewfinder Reticle */}
+            <div className="absolute inset-8 sm:inset-12 pointer-events-none border border-white/15 rounded-2xl flex items-center justify-center">
+              {/* Minimal modern corner brackets */}
+              <div className="absolute top-0 left-0 w-7 h-7 border-t-2 border-l-2 border-emerald-400 rounded-tl-lg shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
+              <div className="absolute top-0 right-0 w-7 h-7 border-t-2 border-r-2 border-emerald-400 rounded-tr-lg shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
+              <div className="absolute bottom-0 left-0 w-7 h-7 border-b-2 border-l-2 border-emerald-400 rounded-bl-lg shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
+              <div className="absolute bottom-0 right-0 w-7 h-7 border-b-2 border-r-2 border-emerald-400 rounded-br-lg shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
+
+              {/* Center reticle badge */}
+              <div className="text-center">
+                <span className="text-[11px] font-semibold text-slate-200 uppercase tracking-widest bg-slate-900/80 px-4 py-1.5 rounded-full backdrop-blur-md border border-white/10 shadow-lg">
+                  Frame Chafing Dish or Platter
                 </span>
               </div>
             </div>
 
-            {/* Top Bar Controls in Camera */}
+            {/* Top Bar Controls */}
             <div className="absolute top-4 inset-x-4 flex items-center justify-between z-10">
-              <span className="text-xs font-bold text-white bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/20 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                Live Camera Feed
+              <span className="text-xs font-bold text-white bg-slate-900/80 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/15 flex items-center gap-2 shadow-md">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                Optical Camera Live
               </span>
 
               <button
                 type="button"
                 onClick={toggleCameraFacing}
-                className="p-2 rounded-full bg-black/60 backdrop-blur-md text-white border border-white/20 hover:bg-black/90 transition-colors"
+                className="p-2 rounded-xl bg-slate-900/80 backdrop-blur-md text-white border border-white/15 hover:bg-slate-800 transition-all cursor-pointer shadow-md active:scale-95"
                 title="Switch Camera (Front/Rear)"
               >
-                <SwitchCamera className="w-4 h-4" />
+                <SwitchCamera className="w-4 h-4 text-slate-200" />
               </button>
             </div>
 
-            {/* Bottom Camera Controls */}
+            {/* Bottom Shutter Controls */}
             <div className="absolute bottom-6 inset-x-0 flex items-center justify-center gap-6 z-10">
               <button
                 type="button"
                 onClick={stopCamera}
-                className="hotel-btn-secondary text-xs bg-black/70 text-white border-white/20 hover:bg-black"
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-900/80 text-white border border-white/20 hover:bg-slate-800 backdrop-blur-md transition-all active:scale-95 cursor-pointer"
               >
                 Cancel
               </button>
 
+              {/* Ergonomic Tactile Shutter */}
               <button
                 type="button"
                 onClick={capturePhoto}
-                className="w-16 h-16 rounded-full border-4 border-white bg-[#b48324] hover:bg-[#966814] shadow-2xl flex items-center justify-center transition-all cursor-pointer transform active:scale-95 hover:scale-105"
-                title="Capture Frame"
+                className="w-18 h-18 rounded-full border-4 border-white/80 bg-emerald-500 hover:bg-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.4)] flex items-center justify-center transition-all cursor-pointer transform active:scale-90 hover:scale-105"
+                title="Capture Dish"
               >
-                <Camera className="w-7 h-7 text-white" />
+                <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center shadow-inner">
+                  <Camera className="w-6 h-6 text-emerald-700" />
+                </div>
               </button>
             </div>
           </div>
         )}
 
-        {/* Captured Image Preview with Bounding Box Overlay */}
+        {/* Captured Image Display with Segmentation HUD */}
         {!isCameraActive && displayedImageUrl && (
-          <div className="relative aspect-4/3 bg-slate-950 flex items-center justify-center overflow-hidden">
+          <div className="relative aspect-4/3 sm:aspect-16/9 bg-slate-950 flex items-center justify-center overflow-hidden">
             <img
               src={displayedImageUrl}
               alt="Scanned Food Leftover"
               className="w-full h-full object-contain"
             />
 
-            {/* Laser Scanning Animation during processing */}
-            {(stage === "uploading" || stage === "analyzing") && <div className="scanner-laser" />}
+            {/* Precision Optical Laser Scan Animation */}
+            {(stage === "uploading" || stage === "analyzing") && (
+              <div className="scanner-laser" />
+            )}
 
-            {/* Result Stage: Floating HUD with Dish Name & Confidence */}
+            {/* Result Stage: Floating Modern HUD */}
             {stage === "result" && scanResult && (
               <>
-                {/* Top-Left: Primary Prediction HUD Banner */}
-                <div className="absolute top-4 left-4 z-20 bg-slate-950/90 backdrop-blur-md text-white px-3.5 py-2.5 rounded-xl border border-[#b48324]/50 shadow-2xl flex items-center gap-3">
-                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                {/* Top-Left: Identified Food Badge */}
+                <div className="absolute top-4 left-4 z-20 bg-slate-900/85 backdrop-blur-md text-white px-4 py-2.5 rounded-xl border border-white/15 shadow-hud flex items-center gap-3">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
                   <div>
-                    <div className="text-[10px] text-slate-300 font-bold uppercase tracking-wider">
-                      Identified Food Dish
+                    <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                      Identified Food Item
                     </div>
-                    <div className="text-sm sm:text-base font-bold text-[#f4d89a] flex items-center gap-2">
+                    <div className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
                       <span>{scanResult.final_food_name || scanResult.ai_food_prediction}</span>
-                      <span className="text-xs px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-mono font-bold">
-                        {Math.round(scanResult.ai_confidence * 100)}% Match
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-md font-mono font-bold border ${
+                          confidencePercent >= 80
+                            ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                            : "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                        }`}
+                      >
+                        {confidencePercent}% Match
                       </span>
                     </div>
                   </div>
@@ -439,13 +465,13 @@ export default function WasteScannerPage() {
 
                 {/* Top-Right: Annotated vs Original View Toggle */}
                 {scanResult.annotated_image_url && (
-                  <div className="absolute top-4 right-4 z-20 flex items-center bg-slate-950/90 backdrop-blur-md p-1 rounded-xl border border-white/20 shadow-xl">
+                  <div className="absolute top-4 right-4 z-20 flex items-center bg-slate-900/85 backdrop-blur-md p-1 rounded-xl border border-white/15 shadow-hud">
                     <button
                       type="button"
                       onClick={() => setViewMode("annotated")}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                         viewMode === "annotated"
-                          ? "bg-[#b48324] text-white shadow-sm"
+                          ? "bg-emerald-600 text-white shadow-xs"
                           : "text-slate-300 hover:text-white"
                       }`}
                     >
@@ -455,9 +481,9 @@ export default function WasteScannerPage() {
                     <button
                       type="button"
                       onClick={() => setViewMode("original")}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                         viewMode === "original"
-                          ? "bg-[#b48324] text-white shadow-sm"
+                          ? "bg-emerald-600 text-white shadow-xs"
                           : "text-slate-300 hover:text-white"
                       }`}
                     >
@@ -471,11 +497,11 @@ export default function WasteScannerPage() {
           </div>
         )}
 
-        {/* Initial Idle Screen with 2 Dedicated Buttons (Camera & Upload) */}
+        {/* Initial Idle Screen - Redesigned, High-Impact & Frictionless */}
         {stage === "idle" && !isCameraActive && !imagePreviewUrl && (
           <div
-            className={`p-8 sm:p-12 text-center space-y-6 transition-colors ${
-              isDragOver ? "bg-amber-50/50" : ""
+            className={`p-6 sm:p-10 text-center space-y-8 transition-colors ${
+              isDragOver ? "bg-emerald-50/40" : ""
             }`}
             onDragOver={(e) => {
               e.preventDefault();
@@ -484,197 +510,197 @@ export default function WasteScannerPage() {
             onDragLeave={() => setIsDragOver(false)}
             onDrop={handleDrop}
           >
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-amber-50 text-[#b48324] flex items-center justify-center border border-[#b48324]/20 shadow-xs">
-              <Sparkles className="w-8 h-8 text-[#b48324]" />
-            </div>
-
-            <div className="space-y-2 max-w-md mx-auto">
+            <div className="max-w-md mx-auto space-y-2">
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-200/60 shadow-xs">
+                <ScanLine className="w-7 h-7 text-emerald-600" />
+              </div>
               <h3 className="font-serif text-2xl font-bold text-slate-900 tracking-tight">
-                Scan Food Waste Dish
+                Optical Food Waste Analysis
               </h3>
               <p className="text-xs text-slate-500 font-normal leading-relaxed">
-                Choose your scanning method below. The trained YOLO vision model segments the food dish, detects portion volume, and calculates raw banquet cost loss.
+                Capture the leftover tray or dish. The AI model segments portions, classifies food items, and estimates kitchen loss value in real time.
               </p>
             </div>
 
-            {/* 2 Primary Dedicated Buttons */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-xl mx-auto pt-2">
-              {/* Button 1: Live Camera Feed */}
+            {/* 2 Primary Modern Action Terminals */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto">
+              {/* Terminal 1: Live Camera Feed */}
               <button
                 type="button"
                 onClick={() => startCamera()}
-                className="group p-6 rounded-2xl border-2 border-[#b48324]/40 bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-transparent hover:border-[#b48324] hover:shadow-xl hover:shadow-amber-500/10 transition-all text-left flex flex-col justify-between space-y-4 cursor-pointer"
+                className="group p-6 rounded-2xl border-2 border-slate-200/90 bg-white hover:border-emerald-500 hover:shadow-card-hover transition-all text-left flex flex-col justify-between space-y-5 cursor-pointer active:scale-[0.98]"
               >
                 <div className="flex items-center justify-between">
-                  <div className="w-14 h-14 rounded-xl bg-[#b48324] text-white flex items-center justify-center shadow-md group-hover:scale-105 transition-transform">
-                    <Camera className="w-7 h-7 text-white" />
+                  <div className="w-13 h-13 rounded-xl bg-gradient-to-br from-emerald-600 to-emerald-700 text-white flex items-center justify-center shadow-md group-hover:scale-105 transition-transform">
+                    <Camera className="w-6 h-6 text-white" />
                   </div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#b48324] bg-amber-100/80 px-2.5 py-1 rounded-full">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200/60">
                     Real-Time
                   </span>
                 </div>
                 <div>
-                  <h4 className="text-base font-bold text-slate-900 group-hover:text-[#b48324] transition-colors flex items-center gap-1.5">
-                    Use Live Camera Feed
+                  <h4 className="text-base font-bold text-slate-900 group-hover:text-emerald-700 transition-colors flex items-center gap-1.5">
+                    Launch Device Camera
                     <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 transition-transform" />
                   </h4>
                   <p className="text-xs text-slate-500 font-normal mt-1 leading-relaxed">
-                    Open your device webcam or phone camera to align and capture the dish in real time.
+                    Open webcam or tablet camera with live viewfinder reticle for rapid banquet dish capture.
                   </p>
                 </div>
-                <div className="pt-2 border-t border-[#b48324]/20 flex items-center justify-between text-xs font-bold text-[#b48324]">
-                  <span>Launch Camera</span>
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-700">
+                  <span>Start Live Scan</span>
                   <span>→</span>
                 </div>
               </button>
 
-              {/* Button 2: Upload Food Image */}
+              {/* Terminal 2: High-Resolution Photo Upload */}
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="group p-6 rounded-2xl border-2 border-slate-200 bg-white hover:border-slate-800 hover:shadow-xl hover:shadow-slate-900/5 transition-all text-left flex flex-col justify-between space-y-4 cursor-pointer"
+                className="group p-6 rounded-2xl border-2 border-slate-200/90 bg-white hover:border-slate-900 hover:shadow-card-hover transition-all text-left flex flex-col justify-between space-y-5 cursor-pointer active:scale-[0.98]"
               >
                 <div className="flex items-center justify-between">
-                  <div className="w-14 h-14 rounded-xl bg-slate-900 text-white flex items-center justify-center shadow-md group-hover:scale-105 transition-transform">
-                    <Upload className="w-7 h-7 text-white" />
+                  <div className="w-13 h-13 rounded-xl bg-gradient-to-br from-slate-900 to-slate-800 text-white flex items-center justify-center shadow-md group-hover:scale-105 transition-transform">
+                    <Upload className="w-6 h-6 text-white" />
                   </div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600 bg-slate-100 px-2.5 py-1 rounded-full">
-                    File Upload
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600 bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200">
+                    JPG / PNG
                   </span>
                 </div>
                 <div>
-                  <h4 className="text-base font-bold text-slate-900 group-hover:text-slate-800 transition-colors flex items-center gap-1.5">
-                    Upload Dish Image
+                  <h4 className="text-base font-bold text-slate-900 group-hover:text-slate-900 transition-colors flex items-center gap-1.5">
+                    Upload Dish Photo
                     <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 transition-transform" />
                   </h4>
                   <p className="text-xs text-slate-500 font-normal mt-1 leading-relaxed">
-                    Select a high-resolution photo from your device or drag & drop JPG / PNG directly.
+                    Upload an existing photo or drag & drop high-resolution leftover dish images directly.
                   </p>
                 </div>
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-slate-800">
-                  <span>Browse Files</span>
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-slate-900">
+                  <span>Browse Photos</span>
                   <span>→</span>
                 </div>
               </button>
             </div>
 
-            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 max-w-md mx-auto flex items-start gap-2.5 text-left text-xs text-slate-600 font-normal">
-              <Info className="w-4 h-4 text-[#b48324] shrink-0 mt-0.5" />
+            {/* Spec Footer Pill */}
+            <div className="p-3.5 bg-slate-50/80 rounded-xl border border-slate-200/80 max-w-lg mx-auto flex items-center gap-3 text-left text-xs text-slate-600 font-normal">
+              <Info className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>
-                Supported by the custom <strong>YOLO 31-Class Indian Food Model</strong> with automated volumetric weight and cost calculation.
+                Equipped with custom <strong>YOLO 31-Class Indian Food Model</strong> with pan depth volumetric calibration.
               </span>
             </div>
           </div>
         )}
 
-        {/* Processing Animation */}
+        {/* Processing State with High-Tech Pulse */}
         {(stage === "uploading" || stage === "analyzing") && (
-          <div className="p-8 text-center space-y-4 bg-slate-900 text-white">
-            <div className="w-14 h-14 mx-auto rounded-xl bg-[#b48324]/20 text-[#f4d89a] flex items-center justify-center border border-[#b48324]/30">
-              <Zap className="w-7 h-7 animate-pulse text-[#e5b958]" />
+          <div className="p-10 text-center space-y-4 bg-slate-900 text-white">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
+              <Zap className="w-7 h-7 animate-pulse text-emerald-400" />
             </div>
             <div className="space-y-1">
-              <h4 className="text-base font-bold text-white">Running Vision Inference</h4>
-              <p className="text-xs text-[#f4d89a] font-medium">{stageMessage}</p>
+              <h4 className="text-base font-bold text-white tracking-wide">Processing Optical Inference</h4>
+              <p className="text-xs text-emerald-400 font-medium">{stageMessage}</p>
             </div>
           </div>
         )}
 
         {/* Error State */}
         {stage === "error" && (
-          <div className="p-8 bg-rose-50 border-t border-rose-200 text-center space-y-4">
+          <div className="p-8 bg-rose-500/5 border-t border-rose-200 text-center space-y-4">
             <AlertTriangle className="w-10 h-10 text-rose-600 mx-auto" />
             <div>
-              <h4 className="text-base font-bold text-rose-900">Scan Analysis Failed</h4>
-              <p className="text-xs text-rose-700 mt-1">{errorMessage}</p>
+              <h4 className="text-base font-bold text-rose-950">Inference Analysis Failed</h4>
+              <p className="text-xs text-rose-700 mt-1 max-w-md mx-auto">{errorMessage}</p>
             </div>
             <button
               onClick={handleReset}
-              className="hotel-btn-primary bg-rose-600 hover:bg-rose-700 border-rose-600 text-xs"
+              className="hotel-btn-primary bg-rose-600 hover:bg-rose-700 border-rose-600 text-xs active:scale-95"
             >
               Try Again
             </button>
           </div>
         )}
 
-        {/* Success / Result Stage */}
+        {/* Success / Result Stage - Modern Culinary Metric Deck */}
         {stage === "result" && scanResult && !isEditing && (
-          <div className="p-6 sm:p-8 space-y-6 bg-white border-t border-slate-200">
+          <div className="p-6 sm:p-8 space-y-6 bg-white border-t border-slate-200/80">
             {/* Low confidence warning banner */}
             {scanResult.is_low_confidence && (
-              <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-[#b48324] shrink-0 mt-0.5" />
+              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-900 text-xs font-semibold flex items-start gap-3 shadow-2xs">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                 <div>
                   <strong className="block text-amber-950 font-bold">
-                    Low Confidence Prediction ({Math.round(scanResult.ai_confidence * 100)}%)
+                    Low Confidence Prediction ({confidencePercent}%)
                   </strong>
                   <p className="font-normal mt-0.5 text-amber-800">
-                    The optical confidence is below target. Click &quot;Correct Food Item&quot; below if the dish is misclassified.
+                    The optical confidence is below recommended threshold. Tap &quot;Correct Food Item&quot; to audit or select the right menu dish.
                   </p>
                 </div>
               </div>
             )}
 
             {/* Detection Summary Header */}
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                  Identified Food Dish
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
+                  Detected Food Dish
                 </span>
-                <span className="font-serif text-2xl font-bold text-slate-900 flex items-center gap-2">
+                <span className="font-serif text-2xl sm:text-3xl font-bold text-slate-900 flex items-center gap-2">
                   {scanResult.final_food_name || scanResult.ai_food_prediction}
                   {scanResult.human_verified && (
                     <CheckCircle className="w-5 h-5 text-emerald-600 inline" />
                   )}
                 </span>
               </div>
-              <div className="text-right">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+              <div className="sm:text-right">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
                   AI Optical Confidence
                 </span>
                 <span
-                  className={`text-xs font-bold px-3 py-1 rounded-md inline-block mt-0.5 border ${
-                    scanResult.ai_confidence >= 0.85
-                      ? "bg-emerald-50 text-[#064e3b] border-emerald-200"
-                      : "bg-amber-50 text-[#b48324] border-amber-200"
+                  className={`text-xs font-bold px-3 py-1 rounded-lg inline-block border ${
+                    confidencePercent >= 80
+                      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                      : "bg-amber-50 text-amber-800 border-amber-200"
                   }`}
                 >
-                  {Math.round(scanResult.ai_confidence * 100)}% Match
+                  {confidencePercent}% Accuracy Match
                 </span>
               </div>
             </div>
 
-            {/* Detection Details Grid (Weight & Cost Removed) */}
+            {/* 3 Metric Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+              <div className="p-4 rounded-xl bg-slate-50/80 border border-slate-200/80 shadow-2xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
                   Dish Category
                 </span>
                 <span className="text-base sm:text-lg font-bold text-slate-900 truncate block">
-                  {matchedFoodItem?.category || "Indian Cuisine"}
+                  {matchedFoodItem?.category || "Main Course"}
                 </span>
                 <span className="text-[11px] text-slate-500 block mt-0.5">
-                  Standard Menu Classification
+                  Menu Specification
                 </span>
               </div>
 
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                  AI Model Engine
+              <div className="p-4 rounded-xl bg-slate-50/80 border border-slate-200/80 shadow-2xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Vision Model Engine
                 </span>
-                <span className="text-base sm:text-lg font-bold text-slate-800 truncate block">
+                <span className="text-base sm:text-lg font-bold text-slate-900 truncate block">
                   {scanResult.ai_model_name || "YOLO Food Model"}
                 </span>
-                <span className="text-[11px] text-[#b48324] font-medium block mt-0.5">
-                  {Math.round(scanResult.ai_confidence * 100)}% Match Accuracy
+                <span className="text-[11px] text-emerald-700 font-semibold block mt-0.5">
+                  {confidencePercent}% Precision
                 </span>
               </div>
 
-              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                  Audit Status
+              <div className="p-4 rounded-xl bg-slate-50/80 border border-slate-200/80 shadow-2xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Audit State
                 </span>
-                <span className="text-base sm:text-lg font-bold text-[#064e3b] flex items-center gap-1.5">
+                <span className="text-base sm:text-lg font-bold text-emerald-800 flex items-center gap-1.5">
                   <CheckCircle className="w-4 h-4 text-emerald-600" />
                   {scanResult.human_verified ? "Staff Verified" : "Optical Estimated"}
                 </span>
@@ -684,22 +710,30 @@ export default function WasteScannerPage() {
               </div>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-100">
+            {/* Fast Action Buttons Deck */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-5 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setIsEditing(true)}
-                className="hotel-btn-secondary text-xs"
+                className="hotel-btn-secondary text-xs active:scale-95"
               >
-                <Edit3 className="w-4 h-4" />
+                <Edit3 className="w-4 h-4 text-slate-500" />
                 Correct Food Item
               </button>
 
               <div className="flex items-center gap-3">
-                <button type="button" onClick={handleReset} className="hotel-btn-secondary text-xs">
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="hotel-btn-secondary text-xs active:scale-95"
+                >
                   Discard
                 </button>
-                <button type="button" onClick={handleConfirmScan} className="hotel-btn-gold text-xs">
+                <button
+                  type="button"
+                  onClick={handleConfirmScan}
+                  className="hotel-btn-emerald text-xs active:scale-95"
+                >
                   <Check className="w-4 h-4" />
                   Confirm & Commit to Banquet
                 </button>
@@ -708,21 +742,21 @@ export default function WasteScannerPage() {
           </div>
         )}
 
-        {/* Edit / Correction View */}
+        {/* Manual Audit Correction View */}
         {stage === "result" && scanResult && isEditing && (
-          <div className="p-6 sm:p-8 space-y-5 bg-white border-t border-slate-200">
+          <div className="p-6 sm:p-8 space-y-5 bg-white border-t border-slate-200/80">
             <h3 className="font-serif text-lg font-bold text-slate-900 border-b border-slate-100 pb-3">
-              Manual Staff Audit Override
+              Staff Optical Audit Override
             </h3>
 
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                Select Correct Food Item
+                Select Correct Food Dish
               </label>
               <select
                 value={correctedFoodId}
                 onChange={(e) => setCorrectedFoodId(Number(e.target.value))}
-                className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 cursor-pointer"
+                className="w-full h-11 px-3.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 cursor-pointer shadow-2xs"
               >
                 {catalog.map((food) => (
                   <option key={food.id} value={food.id}>
@@ -738,10 +772,10 @@ export default function WasteScannerPage() {
               </label>
               <input
                 type="text"
-                placeholder="e.g. AI misclassified curry dish; corrected by chef."
+                placeholder="e.g. Optical misclassification corrected by chef."
                 value={correctionNotes}
                 onChange={(e) => setCorrectionNotes(e.target.value)}
-                className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
+                className="w-full h-11 px-3.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 shadow-2xs"
               />
             </div>
 
@@ -749,14 +783,14 @@ export default function WasteScannerPage() {
               <button
                 type="button"
                 onClick={() => setIsEditing(false)}
-                className="hotel-btn-secondary text-xs"
+                className="hotel-btn-secondary text-xs active:scale-95"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleSaveCorrection}
-                className="hotel-btn-primary text-xs"
+                className="hotel-btn-primary text-xs active:scale-95"
               >
                 <Save className="w-4 h-4" />
                 Save Audit Correction
@@ -767,13 +801,13 @@ export default function WasteScannerPage() {
 
         {/* Confirmed Animation Screen */}
         {stage === "confirmed" && (
-          <div className="p-12 text-center space-y-4 bg-emerald-50 text-emerald-950">
-            <div className="w-16 h-16 mx-auto rounded-full bg-[#064e3b] text-white flex items-center justify-center shadow-lg">
+          <div className="p-12 text-center space-y-4 bg-emerald-500/10 text-emerald-950">
+            <div className="w-16 h-16 mx-auto rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-lg transform scale-100 animate-soft-pulse">
               <Check className="w-8 h-8" />
             </div>
             <div className="space-y-1">
-              <h3 className="font-serif text-xl font-bold text-[#064e3b]">
-                Scan Logged Successfully
+              <h3 className="font-serif text-xl font-bold text-emerald-900">
+                Scan Logged to Banquet
               </h3>
               <p className="text-xs text-emerald-700 font-medium">
                 Dish leftover volume and cost loss committed to banquet event records.

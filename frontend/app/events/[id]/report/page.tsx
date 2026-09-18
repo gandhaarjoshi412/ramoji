@@ -39,7 +39,7 @@ export default function EventReportPage() {
   if (authLoading || loading) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center space-y-4">
-        <div className="w-8 h-8 rounded-full border-3 border-slate-200 border-t-[#0f2942] animate-spin" />
+        <div className="w-8 h-8 rounded-full border-3 border-slate-200 border-t-emerald-600 animate-spin" />
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Generating Culinary Audit Report...</p>
       </div>
     );
@@ -61,29 +61,29 @@ export default function EventReportPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-16">
       {/* Non-printable Top Action Bar */}
-      <div className="no-print flex items-center justify-between border-b border-slate-200 pb-4">
+      <div className="no-print flex items-center justify-between border-b border-slate-200/80 pb-4">
         <Link
           href={`/events/${eventId}`}
-          className="hotel-btn-secondary text-xs"
+          className="hotel-btn-secondary text-xs active:scale-95"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Banquet Event
         </Link>
 
         <button
           onClick={handlePrint}
-          className="hotel-btn-gold text-xs"
+          className="hotel-btn-emerald text-xs active:scale-95"
         >
           <Printer className="w-4 h-4" /> Print Official Audit Document / PDF
         </button>
       </div>
 
       {/* Printable Report Document Card */}
-      <div className="report-page bg-white p-8 sm:p-12 rounded-2xl border border-slate-200 shadow-lg print:p-0 print:border-none print:shadow-none space-y-8">
+      <div className="report-page bg-white p-8 sm:p-12 rounded-2xl border border-slate-200/80 shadow-lg print:p-0 print:border-none print:shadow-none space-y-8">
         {/* Document Header */}
         <div className="border-b-2 border-slate-900 pb-6 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
           <div className="space-y-1">
-            <div className="text-[11px] font-bold uppercase tracking-widest text-[#b48324] flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-[#b48324]" />
+            <div className="text-[11px] font-bold uppercase tracking-widest text-emerald-700 flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
               {report.hotel_name} — Culinary Audit & Yield Division
             </div>
             <h1 className="font-serif text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
@@ -96,7 +96,7 @@ export default function EventReportPage() {
           <div className="text-left sm:text-right text-xs text-slate-500 font-normal space-y-0.5 border-l-2 sm:border-l-0 sm:border-r-2 border-slate-200 pl-3 sm:pl-0 sm:pr-3">
             <div>Report Ref: <strong className="text-slate-900 font-mono">#BFW-{report.event_id}-{new Date().getFullYear()}</strong></div>
             <div>Generated: <strong>{new Date(report.generated_at).toLocaleString("en-IN")}</strong></div>
-            <div className="capitalize font-bold text-[#064e3b]">Audit Status: Certified</div>
+            <div className="capitalize font-bold text-emerald-700">Audit Status: Certified</div>
           </div>
         </div>
 
@@ -125,7 +125,7 @@ export default function EventReportPage() {
         {/* Executive Summary Metrics Grid */}
         <div>
           <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-1.5">
-            <FileText className="w-3.5 h-3.5 text-[#b48324]" />
+            <FileText className="w-3.5 h-3.5 text-emerald-600" />
             Key Operational Production & Waste Metrics
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -138,7 +138,7 @@ export default function EventReportPage() {
 
             <div className="p-4 rounded-xl bg-rose-50/70 border border-rose-200">
               <span className="text-[10px] font-bold text-rose-800 uppercase block">Total Waste</span>
-              <span className="text-xl font-bold text-[#881337] mt-1 block">
+              <span className="text-xl font-bold text-rose-600 mt-1 block">
                 {formatKg(report.total_food_waste_kg)}
               </span>
             </div>
@@ -157,9 +157,9 @@ export default function EventReportPage() {
               </span>
             </div>
 
-            <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200">
-              <span className="text-[10px] font-bold text-amber-900 uppercase block">Cost Loss</span>
-              <span className="text-xl font-bold text-[#c2410c] mt-1 block">
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+              <span className="text-[10px] font-bold text-slate-500 uppercase block">Cost Loss</span>
+              <span className="text-xl font-bold text-slate-900 mt-1 block">
                 {formatINR(report.estimated_waste_cost)}
               </span>
             </div>
@@ -191,7 +191,7 @@ export default function EventReportPage() {
                     <td className="py-3 px-4 font-bold text-slate-900">{item.food_name}</td>
                     <td className="py-3 px-3 text-slate-600">{item.category}</td>
                     <td className="py-3 px-3 text-right font-medium text-slate-700">{item.prepared_kg} kg</td>
-                    <td className="py-3 px-3 text-right font-bold text-[#881337]">
+                    <td className="py-3 px-3 text-right font-bold text-rose-600">
                       {item.leftover_kg > 0 ? `${item.leftover_kg} kg` : "0 kg"}
                     </td>
                     <td className="py-3 px-3 text-right font-bold text-slate-800">{item.waste_percentage}%</td>
@@ -209,10 +209,10 @@ export default function EventReportPage() {
                 <tr>
                   <td colSpan={2} className="py-3 px-4">AUDIT TOTALS:</td>
                   <td className="py-3 px-3 text-right">{report.total_food_prepared_kg} kg</td>
-                  <td className="py-3 px-3 text-right text-[#881337]">{report.total_food_waste_kg} kg</td>
+                  <td className="py-3 px-3 text-right text-rose-600">{report.total_food_waste_kg} kg</td>
                   <td className="py-3 px-3 text-right">{report.waste_rate_percentage}%</td>
                   <td className="py-3 px-3 text-right">—</td>
-                  <td className="py-3 px-4 text-right text-[#c2410c]">{formatINR(report.estimated_waste_cost)}</td>
+                  <td className="py-3 px-4 text-right text-rose-700 font-bold">{formatINR(report.estimated_waste_cost)}</td>
                   <td className="py-3 px-4">—</td>
                 </tr>
               </tfoot>

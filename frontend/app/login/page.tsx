@@ -1,15 +1,23 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { Lock, Mail, AlertCircle, ArrowRight, ShieldCheck, CheckCircle2, Hotel } from "lucide-react";
 
 export default function LoginPage() {
-  const { login } = useAuth();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const { user, login } = useAuth();
+  const router = useRouter();
+  const [email, setEmail] = useState("demo@example.com");
+  const [password, setPassword] = useState("demo123");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      router.replace("/dashboard");
+    }
+  }, [user, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,8 +43,8 @@ export default function LoginPage() {
     <div className="min-h-[80vh] flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8 relative">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center space-y-3">
         {/* Hotel Emblem */}
-        <div className="mx-auto h-16 w-16 rounded-2xl bg-slate-900 flex items-center justify-center text-white shadow-md border border-slate-800">
-          <Hotel className="h-8 w-8 text-slate-100" />
+        <div className="mx-auto h-16 w-16 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center text-white shadow-lg border border-slate-700/60 transform hover:scale-105 transition-transform">
+          <Hotel className="h-8 w-8 text-emerald-400" />
         </div>
 
         <div>

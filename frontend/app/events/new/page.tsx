@@ -234,7 +234,7 @@ export default function NewEventPage() {
             <button
               type="submit"
               disabled={loading}
-              className="hotel-btn-primary"
+              className="hotel-btn-emerald active:scale-95"
             >
               <Plus className="w-4 h-4" />
               {loading ? "Creating..." : "Save & Configure Menu"}

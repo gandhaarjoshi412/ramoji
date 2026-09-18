@@ -115,7 +115,7 @@ export default function SettingsPage() {
         {/* AI Inference Settings Card */}
         <div className="hotel-card p-6 sm:p-7 space-y-6">
           <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
-            <div className="w-10 h-10 rounded-xl bg-amber-50 text-[#b48324] flex items-center justify-center border border-amber-200">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-200/60">
               <Sliders className="w-5 h-5" />
             </div>
             <div>
@@ -135,7 +135,7 @@ export default function SettingsPage() {
                   onClick={() => setAiMode("mock")}
                   className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
                     aiMode === "mock"
-                      ? "border-[#0f2942] bg-slate-50 ring-1 ring-[#0f2942]"
+                      ? "border-emerald-600 bg-emerald-50/30 ring-1 ring-emerald-600"
                       : "border-slate-200 bg-white hover:bg-slate-50"
                   }`}
                 >
@@ -150,7 +150,7 @@ export default function SettingsPage() {
                   onClick={() => setAiMode("yolo")}
                   className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
                     aiMode === "yolo"
-                      ? "border-[#0f2942] bg-slate-50 ring-1 ring-[#0f2942]"
+                      ? "border-emerald-600 bg-emerald-50/30 ring-1 ring-emerald-600"
                       : "border-slate-200 bg-white hover:bg-slate-50"
                   }`}
                 >
@@ -173,7 +173,7 @@ export default function SettingsPage() {
                 step="0.05"
                 value={threshold}
                 onChange={(e) => setThreshold(e.target.value)}
-                className="w-full accent-[#0f2942] h-2 bg-slate-200 rounded-lg cursor-pointer"
+                className="w-full accent-emerald-600 h-2 bg-slate-200 rounded-lg cursor-pointer"
               />
               <p className="text-[11px] text-slate-400 font-normal mt-1">
                 Scans scoring below this threshold prompt staff to verify food item identity or scale weight.
@@ -196,7 +196,7 @@ export default function SettingsPage() {
         {/* Hotel Profile Card */}
         <div className="hotel-card p-6 sm:p-7 space-y-5">
           <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
-            <div className="w-10 h-10 rounded-xl bg-slate-100 text-[#0f2942] flex items-center justify-center border border-slate-200">
+            <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center border border-slate-200">
               <Hotel className="w-5 h-5" />
             </div>
             <div>
@@ -214,7 +214,7 @@ export default function SettingsPage() {
                 type="text"
                 value={hotelName}
                 onChange={(e) => setHotelName(e.target.value)}
-                className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
+                className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
               />
             </div>
 
@@ -226,7 +226,7 @@ export default function SettingsPage() {
                 type="text"
                 value={hotelAddress}
                 onChange={(e) => setHotelAddress(e.target.value)}
-                className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-900 font-medium focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
+                className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-900 font-medium focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
               />
             </div>
           </div>
@@ -235,7 +235,7 @@ export default function SettingsPage() {
             <button
               type="submit"
               disabled={saving}
-              className="hotel-btn-gold text-xs"
+              className="hotel-btn-emerald text-xs active:scale-95"
             >
               <Save className="w-3.5 h-3.5" />
               {saving ? "Saving..." : "Save Settings"}

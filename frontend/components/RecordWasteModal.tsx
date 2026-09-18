@@ -74,22 +74,16 @@ export const RecordWasteModal: React.FC<RecordWasteModalProps> = ({
       return;
     }
 
-    if (container < 0) {
-      setError("Container weight cannot be negative.");
-      return;
-    }
-
-    if (container > gross) {
-      setError("Container weight cannot exceed gross weight.");
+    if (isTareInvalid) {
+      setError("Container tare weight cannot exceed gross dish weight.");
       return;
     }
 
     setLoading(true);
     try {
-      await apiRequest<WasteRecord>(`/api/events/${eventId}/waste`, {
+      await apiRequest(`/api/events/${eventId}/foods/${selectedFoodId}/waste`, {
         method: "POST",
         body: JSON.stringify({
-          event_food_id: Number(selectedFoodId),
           gross_weight_kg: gross,
           container_weight_kg: container,
           waste_reason: wasteReason,
@@ -104,36 +98,36 @@ export const RecordWasteModal: React.FC<RecordWasteModalProps> = ({
       onSuccess();
       onClose();
     } catch (err: any) {
-      setError(err.message || "Failed to record waste.");
+      setError(err.message || "Failed to record dish waste.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="hotel-card bg-white max-w-lg w-full p-6 sm:p-7 relative shadow-2xl">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+      <div className="hotel-card bg-white max-w-md w-full p-6 sm:p-7 relative shadow-2xl border border-slate-200/80 animate-in fade-in zoom-in-95 duration-150">
         <button
           onClick={onClose}
-          className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 p-1 rounded-md hover:bg-slate-100 transition-colors"
+          className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-100 transition-colors active:scale-95"
         >
           <X className="w-5 h-5" />
         </button>
 
         <div className="flex items-center space-x-3 mb-5">
-          <div className="w-10 h-10 rounded-xl bg-amber-50 text-[#b48324] flex items-center justify-center border border-amber-200">
-            <Scale className="w-5 h-5 text-[#b48324]" />
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-200/60">
+            <Scale className="w-5 h-5 text-emerald-600" />
           </div>
           <div>
-            <h2 className="font-serif text-lg font-bold text-slate-900">Record Food Waste Scale Log</h2>
+            <h2 className="font-serif text-lg font-bold text-slate-900">Record Food Leftover</h2>
             <p className="text-xs text-slate-500 font-normal">
-              Tare kitchen scale and record verified leftover weight
+              Manual weigh-in and container tare calibration
             </p>
           </div>
         </div>
 
         {error && (
-          <div className="mb-4 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2">
+          <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
@@ -142,17 +136,17 @@ export const RecordWasteModal: React.FC<RecordWasteModalProps> = ({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1">
-              Select Food Dish
+              Select Menu Dish
             </label>
             <select
               value={selectedFoodId}
               onChange={(e) => setSelectedFoodId(Number(e.target.value))}
               required
-              className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 font-medium text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 cursor-pointer"
+              className="w-full h-11 px-3.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-medium text-xs focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 cursor-pointer shadow-2xs"
             >
               {foods.map((food) => (
                 <option key={food.id} value={food.id}>
-                  {food.food_item_name} ({food.food_item_category}) — {food.prepared_weight_kg} kg (₹{food.estimated_cost_per_kg}/kg)
+                  {food.food_item_name} ({food.food_item_category}) — {food.prepared_weight_kg} kg prep
                 </option>
               ))}
             </select>
@@ -161,42 +155,41 @@ export const RecordWasteModal: React.FC<RecordWasteModalProps> = ({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1">
-                Gross Scale Weight (kg)
+                Gross Weight (kg) *
               </label>
               <input
                 type="number"
                 step="0.01"
                 min="0.01"
                 required
-                placeholder="e.g. 5.80"
+                placeholder="e.g. 12.5"
                 value={grossInput}
                 onChange={(e) => setGrossInput(e.target.value)}
-                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs font-bold focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
+                className="w-full h-11 px-3.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 shadow-2xs"
               />
             </div>
 
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1">
-                Tare / Pan Tare (kg)
+                Container Tare (kg)
               </label>
               <input
                 type="number"
                 step="0.01"
                 min="0"
-                required
-                placeholder="e.g. 0.80"
+                placeholder="e.g. 1.2"
                 value={containerInput}
                 onChange={(e) => setContainerInput(e.target.value)}
-                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs font-bold focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
+                className="w-full h-11 px-3.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 shadow-2xs"
               />
             </div>
           </div>
 
-          {/* Dynamic Net & Cost Preview */}
-          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+          {/* Computed Net Preview */}
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-between">
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-400 block">Net Leftover</span>
-              <strong className="text-base text-rose-600 font-bold">{netLeftover} kg</strong>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Net Leftover Weight</span>
+              <strong className="text-base text-rose-600 font-extrabold">{netLeftover} kg</strong>
             </div>
             <div className="text-right">
               <span className="text-[10px] uppercase font-bold text-slate-400 block">Estimated Loss</span>
@@ -212,7 +205,7 @@ export const RecordWasteModal: React.FC<RecordWasteModalProps> = ({
               <select
                 value={wasteReason}
                 onChange={(e) => setWasteReason(e.target.value)}
-                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 font-medium text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 cursor-pointer"
+                className="w-full h-11 px-3.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-medium text-xs focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 cursor-pointer shadow-2xs"
               >
                 {WASTE_REASONS.map((r) => (
                   <option key={r} value={r}>
@@ -229,7 +222,7 @@ export const RecordWasteModal: React.FC<RecordWasteModalProps> = ({
               <select
                 value={weightSource}
                 onChange={(e) => setWeightSource(e.target.value)}
-                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 font-medium text-xs focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 cursor-pointer"
+                className="w-full h-11 px-3.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 font-medium text-xs focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 cursor-pointer shadow-2xs"
               >
                 <option value="Manual">Manual Entry</option>
                 <option value="BluetoothScale">Bluetooth Scale</option>
@@ -247,7 +240,7 @@ export const RecordWasteModal: React.FC<RecordWasteModalProps> = ({
               placeholder="e.g. End of service clearing; 2 platters partially untouched."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
+              className="w-full h-11 px-3.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 shadow-2xs"
             />
           </div>
 
@@ -255,14 +248,14 @@ export const RecordWasteModal: React.FC<RecordWasteModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="hotel-btn-secondary text-xs"
+              className="hotel-btn-secondary text-xs active:scale-95"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading || isTareInvalid}
-              className="hotel-btn-gold text-xs"
+              className="hotel-btn-emerald text-xs active:scale-95"
             >
               <Check className="w-3.5 h-3.5" />
               {loading ? "Recording..." : "Log Waste Measurement"}

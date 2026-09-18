@@ -18,44 +18,49 @@ body {
   font-family: var(--font-serif);
 }
 
-/* 5-Star Hotel Bespoke Card Architecture */
+/* Modern Hotel Card Architecture */
 .hotel-card {
   background: #ffffff;
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  border-radius: 0.875rem;
-  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.03), 0 2px 6px -1px rgba(15, 23, 42, 0.02);
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  border-radius: 1rem;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.03), 0 4px 16px -2px rgba(15, 23, 42, 0.04);
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.18s ease;
 }
 
 .hotel-card:hover {
-  border-color: rgba(203, 213, 225, 1);
-  box-shadow: 0 10px 25px -4px rgba(15, 23, 42, 0.06);
+  border-color: rgba(203, 213, 225, 0.9);
+  box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.07);
 }
 
-/* Luxury Hotel Buttons - Handcrafted & Architectural */
+/* Fast-Action Banquet Buttons - Snappy & Tactile */
 .hotel-btn-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 0.65rem 1.35rem;
+  padding: 0.65rem 1.25rem;
   font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  background-color: #0f172a;
+  letter-spacing: 0.025em;
+  background-color: #090d16;
   color: #ffffff;
-  border: 1px solid #0f172a;
-  border-radius: 0.5rem;
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
-  transition: all 0.2s ease;
+  border: 1px solid #090d16;
+  border-radius: 0.625rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(9, 13, 22, 0.1);
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   cursor: pointer;
+  user-select: none;
 }
 
 .hotel-btn-primary:hover {
   background-color: #1e293b;
   border-color: #1e293b;
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 4px 12px rgba(9, 13, 22, 0.18);
+}
+
+.hotel-btn-primary:active {
+  transform: scale(0.98);
 }
 
 .hotel-btn-secondary {
@@ -66,47 +71,29 @@ body {
   padding: 0.6rem 1.15rem;
   font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
   background-color: #ffffff;
   color: #334155;
-  border: 1px solid #cbd5e1;
-  border-radius: 0.5rem;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-  transition: all 0.2s ease;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.625rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   cursor: pointer;
+  user-select: none;
 }
 
 .hotel-btn-secondary:hover {
   background-color: #f8fafc;
   color: #0f172a;
-  border-color: #94a3b8;
-}
-
-.hotel-btn-gold {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 0.65rem 1.35rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  background-color: #b48324;
-  color: #ffffff;
-  border: 1px solid #b48324;
-  border-radius: 0.5rem;
-  box-shadow: 0 2px 8px rgba(180, 131, 36, 0.25);
-  transition: all 0.2s ease;
-  cursor: pointer;
-}
-
-.hotel-btn-gold:hover {
-  background-color: #9c6f1a;
-  border-color: #9c6f1a;
+  border-color: #cbd5e1;
   transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(180, 131, 36, 0.35);
 }
 
+.hotel-btn-secondary:active {
+  transform: scale(0.98);
+}
+
+/* Eco-Efficiency Emerald Action Button (Primary for Confirming Audits) */
 .hotel-btn-emerald {
   display: inline-flex;
   align-items: center;
@@ -115,35 +102,73 @@ body {
   padding: 0.65rem 1.35rem;
   font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  background-color: #064e3b;
+  letter-spacing: 0.025em;
+  background-color: #059669;
   color: #ffffff;
-  border: 1px solid #064e3b;
-  border-radius: 0.5rem;
-  box-shadow: 0 2px 8px rgba(6, 78, 59, 0.2);
-  transition: all 0.2s ease;
+  border: 1px solid #059669;
+  border-radius: 0.625rem;
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.25);
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   cursor: pointer;
+  user-select: none;
 }
 
 .hotel-btn-emerald:hover {
-  background-color: #04382a;
-  border-color: #04382a;
+  background-color: #047857;
+  border-color: #047857;
   transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(6, 78, 59, 0.3);
+  box-shadow: 0 4px 14px rgba(5, 150, 105, 0.35);
 }
 
-/* Scanner Animation */
+.hotel-btn-emerald:active {
+  transform: scale(0.98);
+}
+
+/* Modern Refined Accent Button (Replaced Cheap Gold with Crisp Sapphire-Indigo) */
+.hotel-btn-gold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  color: #ffffff;
+  border: 1px solid #059669;
+  border-radius: 0.625rem;
+  box-shadow: 0 2px 10px rgba(5, 150, 105, 0.25);
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+  user-select: none;
+}
+
+.hotel-btn-gold:hover {
+  background: linear-gradient(135deg, #047857 0%, #065f46 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(5, 150, 105, 0.35);
+}
+
+.hotel-btn-gold:active {
+  transform: scale(0.98);
+}
+
+/* Precision Optical Laser Scan Animation (High-Tech Emerald / Cyan) */
 @keyframes laserSweep {
   0% {
-    top: 0%;
-    opacity: 0.8;
+    top: 5%;
+    opacity: 0.4;
   }
-  50% {
+  45% {
+    opacity: 1;
+  }
+  55% {
     opacity: 1;
   }
   100% {
-    top: 100%;
-    opacity: 0.8;
+    top: 95%;
+    opacity: 0.4;
   }
 }
 
@@ -151,16 +176,31 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent 0%, #b48324 20%, #fef08a 50%, #b48324 80%, transparent 100%);
-  box-shadow: 0 0 16px 3px rgba(180, 131, 36, 0.8);
-  animation: laserSweep 2s infinite ease-in-out;
+  height: 3px;
+  background: linear-gradient(90deg, transparent 0%, rgba(16, 185, 129, 0.4) 15%, #10b981 50%, rgba(16, 185, 129, 0.4) 85%, transparent 100%);
+  box-shadow: 0 0 16px 3px rgba(16, 185, 129, 0.8), 0 0 30px 6px rgba(52, 211, 153, 0.4);
+  animation: laserSweep 1.8s infinite cubic-bezier(0.45, 0.05, 0.55, 0.95);
+  pointer-events: none;
 }
 
-/* Custom Scrollbars */
+/* Subtle Shimmer for High-Priority Elements */
+@keyframes softPulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.animate-soft-pulse {
+  animation: softPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Custom Clean Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: #f1f5f9;

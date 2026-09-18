@@ -153,7 +153,7 @@ export default function IngredientsPage() {
               </button>
               <button
                 onClick={saveCost}
-                className="hotel-btn-gold text-xs"
+                className="hotel-btn-emerald text-xs active:scale-95"
               >
                 <Check className="w-3.5 h-3.5" />
                 Save Rate

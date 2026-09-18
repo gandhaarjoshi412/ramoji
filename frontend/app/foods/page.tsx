@@ -136,8 +136,8 @@ export default function FoodsPage() {
             </button>
 
             <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-xl bg-amber-50 text-[#b48324] flex items-center justify-center border border-amber-200">
-                <Sliders className="w-5 h-5 text-[#b48324]" />
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-200/60">
+                <Sliders className="w-5 h-5 text-emerald-600" />
               </div>
               <div>
                 <h3 className="font-serif text-lg font-bold text-slate-900">
@@ -202,7 +202,7 @@ export default function FoodsPage() {
               </button>
               <button
                 onClick={saveEdit}
-                className="hotel-btn-gold text-xs"
+                className="hotel-btn-emerald text-xs active:scale-95"
               >
                 <Check className="w-3.5 h-3.5" />
                 Save Calibration
