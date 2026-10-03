@@ -189,7 +189,7 @@ export default function WasteScannerPage() {
 
     try {
       setStage("analyzing");
-      setStageMessage("Segmenting dish contours & running YOLO classification...");
+      setStageMessage("Segmenting dish contours & running optical classification...");
 
       const scan = await apiRequest<WasteScan>(`/api/events/${eventId}/scan`, {
         method: "POST",
@@ -268,7 +268,11 @@ export default function WasteScannerPage() {
     ) {
       return url;
     }
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL
+      ? process.env.NEXT_PUBLIC_API_URL
+      : typeof window !== "undefined"
+      ? ""
+      : "http://localhost:8000";
     return `${apiUrl}${url.startsWith("/") ? "" : "/"}${url}`;
   };
 
@@ -441,13 +445,45 @@ export default function WasteScannerPage() {
             {/* Result Stage: Floating Modern HUD */}
             {stage === "result" && scanResult && (
               <>
-                {/* Top-Left: Identified Food Badge */}
-                <div className="absolute top-4 left-4 z-20 bg-slate-900/85 backdrop-blur-md text-white px-4 py-2.5 rounded-xl border border-white/15 shadow-hud flex items-center gap-3">
-                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                  <div>
-                    <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
-                      Identified Food Item
+                {/* Top-Left: Identified Food Badge (Lists all detected items) */}
+                <div className="absolute top-4 left-4 z-20 bg-slate-900/90 backdrop-blur-md text-white px-4 py-3 rounded-2xl border border-white/15 shadow-hud max-w-[340px] sm:max-w-md">
+                  <div className="flex items-center gap-2 mb-2 pb-1.5 border-b border-white/10">
+                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                    <span className="text-[10px] text-slate-300 font-bold uppercase tracking-wider">
+                      {scanResult.detected_items && scanResult.detected_items.length > 1
+                        ? `Identified Dishes (${scanResult.detected_items.length} Detected)`
+                        : "Identified Food Item"}
+                    </span>
+                  </div>
+
+                  {scanResult.detected_items && scanResult.detected_items.length > 1 ? (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {scanResult.detected_items.map((it, idx) => {
+                        const pct = Math.round(it.confidence_percent ?? it.confidence * 100);
+                        return (
+                          <div
+                            key={idx}
+                            className="flex items-center justify-between gap-3 text-xs sm:text-sm font-semibold py-0.5"
+                          >
+                            <span className="text-white truncate max-w-[200px] sm:max-w-[250px]">
+                              {it.name}
+                            </span>
+                            <span
+                              className={`text-[10px] sm:text-xs px-2 py-0.5 rounded-md font-mono font-bold border shrink-0 ${
+                                pct >= 80
+                                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                                  : pct >= 50
+                                  ? "bg-sky-500/20 text-sky-300 border-sky-500/30"
+                                  : "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                              }`}
+                            >
+                              {pct}%
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
+                  ) : (
                     <div className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
                       <span>{scanResult.final_food_name || scanResult.ai_food_prediction}</span>
                       <span
@@ -460,7 +496,7 @@ export default function WasteScannerPage() {
                         {confidencePercent}% Match
                       </span>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 {/* Top-Right: Annotated vs Original View Toggle */}
@@ -587,7 +623,7 @@ export default function WasteScannerPage() {
             <div className="p-3.5 bg-slate-50/80 rounded-xl border border-slate-200/80 max-w-lg mx-auto flex items-center gap-3 text-left text-xs text-slate-600 font-normal">
               <Info className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>
-                Equipped with custom <strong>YOLO 31-Class Indian Food Model</strong> with pan depth volumetric calibration.
+                Equipped with custom <strong>31-Class Culinary Food Model</strong> with pan depth volumetric calibration.
               </span>
             </div>
           </div>
@@ -645,7 +681,9 @@ export default function WasteScannerPage() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
-                  Detected Food Dish
+                  {scanResult.detected_items && scanResult.detected_items.length > 1
+                    ? `Detected Food Dishes (${scanResult.detected_items.length} Items)`
+                    : "Detected Food Dish"}
                 </span>
                 <span className="font-serif text-2xl sm:text-3xl font-bold text-slate-900 flex items-center gap-2">
                   {scanResult.final_food_name || scanResult.ai_food_prediction}
@@ -653,6 +691,22 @@ export default function WasteScannerPage() {
                     <CheckCircle className="w-5 h-5 text-emerald-600 inline" />
                   )}
                 </span>
+                {scanResult.detected_items && scanResult.detected_items.length > 1 && (
+                  <div className="flex flex-wrap gap-2 mt-2.5">
+                    {scanResult.detected_items.map((it, idx) => (
+                      <span
+                        key={idx}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-800 border border-slate-200 shadow-2xs"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                        <span>{it.name}</span>
+                        <span className="text-slate-500 font-mono text-[11px]">
+                          {Math.round(it.confidence_percent ?? it.confidence * 100)}%
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="sm:text-right">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
@@ -686,10 +740,10 @@ export default function WasteScannerPage() {
 
               <div className="p-4 rounded-xl bg-slate-50/80 border border-slate-200/80 shadow-2xs">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                  Vision Model Engine
+                  Vision Engine
                 </span>
                 <span className="text-base sm:text-lg font-bold text-slate-900 truncate block">
-                  {scanResult.ai_model_name || "YOLO Food Model"}
+                  Optical Segmentation
                 </span>
                 <span className="text-[11px] text-emerald-700 font-semibold block mt-0.5">
                   {confidencePercent}% Precision

@@ -15,24 +15,23 @@ def find_default_source() -> str:
     for c in candidates:
         if os.path.exists(c):
             return c
-    # Look for any jpg in datasets or uploads
-    for p in Path("datasets").rglob("*.jpg"):
-        return str(p)
+    # Look for any jpg in backend/uploads
     for p in Path("backend/uploads").rglob("*.jpg"):
         return str(p)
-    return "datasets/merged_indian_food/test/images"
+    for p in Path("uploads").rglob("*.jpg"):
+        return str(p)
+    return "backend/uploads"
 
 def find_default_weights() -> str:
     candidates = [
+        "models/trained/foodwaste_yolo11m_seg_31cls.pt",
+        "/home/gandhaar/project/ramoji/models/trained/foodwaste_yolo11m_seg_31cls.pt",
         "best.pt",
-        "ai/weights/yolo11m-seg.pt",
-        "/home/gandhaar/kaggle/foodwaste_yolo11m_merged15k/weights/best.pt",
-        "ai/weights/yolo26-seg.pt",
     ]
     for c in candidates:
         if os.path.exists(c):
             return c
-    return "best.pt"
+    return "models/trained/foodwaste_yolo11m_seg_31cls.pt"
 
 def calculate_polygon_area(poly: np.ndarray) -> float:
     """Calculates polygon area using Shoelace formula."""

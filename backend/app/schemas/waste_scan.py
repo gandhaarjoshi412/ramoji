@@ -12,6 +12,36 @@ class WasteScanVerifyRequest(BaseModel):
     final_weight_kg: Optional[float] = None
     correction_notes: Optional[str] = None
 
+class ScanDetectionDto(BaseModel):
+    class_id: int
+    class_name: str
+    confidence: float
+    coverage_percent: float
+    instance_count: int = 1
+
+class WasteScanPayload(BaseModel):
+    scan_id: str
+    event_id: int
+    event_food_id: Optional[int] = None
+    gross_weight_kg: float = 0.0
+    container_weight_kg: float = 0.0
+    waste_reason: str = "Camera AI Scan"
+    notes: Optional[str] = None
+    weight_source: str = "Camera_AI_Estimate"
+    ai_food_prediction: str
+    ai_confidence: float
+    timestamp: str
+    model_version: str = "platesight-v1.0-dishes58"
+    detections: List[ScanDetectionDto] = []
+
+class DetectedFoodItem(BaseModel):
+    name: str
+    confidence: float
+    confidence_percent: Optional[int] = None
+    class_id: Optional[int] = None
+    coverage_percent: Optional[float] = None
+    instance_count: Optional[int] = 1
+
 class WasteScanResponse(BaseModel):
     id: int
     event_id: int
@@ -25,6 +55,7 @@ class WasteScanResponse(BaseModel):
     ai_confidence: float
     bounding_box: Optional[Any] = None
     segmentation_mask: Optional[Any] = None
+    detected_items: Optional[List[DetectedFoodItem]] = None
 
     # Quantity Estimation
     estimated_weight_grams: float

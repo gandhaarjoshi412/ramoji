@@ -61,6 +61,12 @@ export interface FoodItem {
   created_at: string;
 }
 
+export interface DetectedFoodItem {
+  name: string;
+  confidence: number;
+  confidence_percent?: number;
+}
+
 export interface WasteScan {
   id: number;
   event_id: number;
@@ -72,6 +78,7 @@ export interface WasteScan {
   ai_confidence: number;
   bounding_box?: number[];
   segmentation_mask?: number[][];
+  detected_items?: DetectedFoodItem[];
   estimated_weight_grams: number;
   estimation_confidence: number;
   measurement_method: string;

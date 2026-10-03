@@ -1,0 +1,1 @@
+scripts/status_demo.sh

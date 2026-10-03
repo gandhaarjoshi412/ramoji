@@ -18,6 +18,7 @@ class WasteScan(Base):
     ai_confidence = Column(Float, nullable=False)
     bounding_box = Column(Text, nullable=True)        # JSON string of [x1, y1, x2, y2]
     segmentation_mask = Column(Text, nullable=True)   # Polygon points or RLE reference
+    detected_items = Column(Text, nullable=True)      # JSON list of all detected food items in image
     
     # Quantity Estimation Results (Camera-only approximation)
     estimated_weight_grams = Column(Float, nullable=False)

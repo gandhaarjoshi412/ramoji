@@ -82,11 +82,14 @@ def test_e2e_ai_scan_and_verification_workflow(auth_token):
 
     # 2. Create or load a test food image
     import os
-    sample_path = "backend/uploads/biryani_waste_scan.jpg"
-    if not os.path.exists(sample_path) and os.path.exists("uploads/biryani_waste_scan.jpg"):
-        sample_path = "uploads/biryani_waste_scan.jpg"
+    candidates = [
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads", "biryani_waste_scan.jpg"),
+        "uploads/biryani_waste_scan.jpg",
+        "backend/uploads/biryani_waste_scan.jpg",
+    ]
+    sample_path = next((c for c in candidates if os.path.exists(c)), None)
 
-    if os.path.exists(sample_path):
+    if sample_path and os.path.exists(sample_path):
         with open(sample_path, "rb") as f:
             file_bytes = f.read()
     else:

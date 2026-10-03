@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
@@ -122,7 +122,7 @@ def get_event_report(
     return EventReportResponse(
         hotel_name=event.hotel.name if event.hotel else "Banquet Operations",
         hotel_address=event.hotel.address if event.hotel else None,
-        generated_at=datetime.utcnow(),
+        generated_at=datetime.now(timezone.utc),
         event_id=event.id,
         event_name=event.name,
         event_type=event.event_type,

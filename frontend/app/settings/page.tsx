@@ -112,56 +112,19 @@ export default function SettingsPage() {
       )}
 
       <form onSubmit={handleSave} className="space-y-6">
-        {/* AI Inference Settings Card */}
+        {/* Optical & Vision Parameters Card */}
         <div className="hotel-card p-6 sm:p-7 space-y-6">
           <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
             <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-200/60">
               <Sliders className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-serif text-base font-bold text-slate-900">Vision Model Runtime</h3>
-              <p className="text-xs text-slate-500 font-normal">Configure dish segmentation mode</p>
+              <h3 className="font-serif text-base font-bold text-slate-900">Vision Parameters</h3>
+              <p className="text-xs text-slate-500 font-normal">Configure verification threshold and optical sensitivity</p>
             </div>
           </div>
 
           <div className="space-y-5">
-            <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-2">
-                Inference Engine Mode
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setAiMode("mock")}
-                  className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
-                    aiMode === "mock"
-                      ? "border-emerald-600 bg-emerald-50/30 ring-1 ring-emerald-600"
-                      : "border-slate-200 bg-white hover:bg-slate-50"
-                  }`}
-                >
-                  <div className="font-bold text-sm text-slate-900">Deterministic Engine (Demo)</div>
-                  <div className="text-xs text-slate-500 font-normal mt-1 leading-relaxed">
-                    Reliable volume estimation without requiring dedicated server GPU resources.
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setAiMode("yolo")}
-                  className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
-                    aiMode === "yolo"
-                      ? "border-emerald-600 bg-emerald-50/30 ring-1 ring-emerald-600"
-                      : "border-slate-200 bg-white hover:bg-slate-50"
-                  }`}
-                >
-                  <div className="font-bold text-sm text-slate-900">YOLO11m-seg (Neural Model)</div>
-                  <div className="text-xs text-slate-500 font-normal mt-1 leading-relaxed">
-                    Runs PyTorch/Ultralytics segmentation checkpoint from model weights file.
-                  </div>
-                </button>
-              </div>
-            </div>
-
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-2">
                 Low Confidence Verification Alert ({Math.round(parseFloat(threshold) * 100)}%)
@@ -178,17 +141,6 @@ export default function SettingsPage() {
               <p className="text-[11px] text-slate-400 font-normal mt-1">
                 Scans scoring below this threshold prompt staff to verify food item identity or scale weight.
               </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 pt-2 text-xs">
-              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
-                <span className="font-bold text-slate-400 uppercase text-[10px] block">Model Identifier</span>
-                <span className="font-bold text-slate-800 text-sm mt-0.5 block">{settings.ai_model_name}</span>
-              </div>
-              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
-                <span className="font-bold text-slate-400 uppercase text-[10px] block">Checkpoint Version</span>
-                <span className="font-bold text-slate-800 text-sm mt-0.5 block">{settings.ai_model_version}</span>
-              </div>
             </div>
           </div>
         </div>

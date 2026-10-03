@@ -38,6 +38,20 @@ def create_demo_food_image(filename: str, title: str, color: tuple):
 def seed_database(db: Session) -> None:
     existing_hotel = db.query(Hotel).first()
     if existing_hotel:
+        from ai.food_classes import sync_food_catalog_for_hotel
+        sync_food_catalog_for_hotel(db, existing_hotel.id)
+        # Ensure manager user exists
+        mgr = db.query(User).filter(User.email == "manager@dolphinhotels.com").first()
+        if not mgr:
+            mgr = User(
+                name="Banquet Operations Manager",
+                email="manager@dolphinhotels.com",
+                password_hash=hash_password("admin123"),
+                role="admin",
+                hotel_id=existing_hotel.id
+            )
+            db.add(mgr)
+            db.commit()
         return
 
     print("Seeding database with Dolphin Hotels, staff, ingredients, recipes, and AI waste scans...")
@@ -58,6 +72,30 @@ def seed_database(db: Session) -> None:
         role="admin",
         hotel_id=hotel.id
     )
+    users_to_add = [admin_user]
+
+    if settings.DEMO_EMAIL != "demo@example.com":
+        users_to_add.append(
+            User(
+                name="Demo Admin",
+                email="demo@example.com",
+                password_hash=hash_password("demo123"),
+                role="admin",
+                hotel_id=hotel.id
+            )
+        )
+
+    if settings.DEMO_EMAIL != "manager@dolphinhotels.com":
+        users_to_add.append(
+            User(
+                name="Banquet Operations Manager",
+                email="manager@dolphinhotels.com",
+                password_hash=hash_password("admin123"),
+                role="admin",
+                hotel_id=hotel.id
+            )
+        )
+
     staff_user = User(
         name="Kitchen Steward Staff",
         email="staff@example.com",
@@ -65,7 +103,8 @@ def seed_database(db: Session) -> None:
         role="staff",
         hotel_id=hotel.id
     )
-    db.add_all([admin_user, staff_user])
+    users_to_add.append(staff_user)
+    db.add_all(users_to_add)
     db.flush()
 
     # 3. Ingredients with Unit Costs
@@ -352,5 +391,7 @@ def seed_database(db: Session) -> None:
         )
         db.add(scan)
 
+    from ai.food_classes import sync_food_catalog_for_hotel
+    sync_food_catalog_for_hotel(db, hotel.id)
     db.commit()
-    print("Database seeding completed successfully with realistic recipes and AI scans.")
+    print("Database seeding completed successfully with realistic recipes and 58 AI food classes.")

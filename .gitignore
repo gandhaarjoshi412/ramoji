@@ -36,8 +36,10 @@ Thumbs.db
 .env.*
 !.env.example
 
-# Logs
+# Logs and Run State
 *.log
+logs/
+run/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -49,11 +51,12 @@ pnpm-debug.log*
 *.onnx
 *.bin
 *.engine
-ai/weights/*
+epoch*.pt
 runs/
 yolo26_weights/
+!models/trained/foodwaste_yolo11m_seg_31cls.pt
+!models/trained/indianfood_yolo11m_det_31cls.pt
 !best.pt
-!ai/weights/yolo26-seg.pt
 
 
 # Datasets & Archives

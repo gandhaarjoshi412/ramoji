@@ -4,7 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { LogOut, Sparkles, Building2 } from "lucide-react";
+import { LogOut, Building2 } from "lucide-react";
 
 export const Navbar = () => {
   const { user, logout } = useAuth();
@@ -36,10 +36,6 @@ export const Navbar = () => {
               <div className="flex items-center gap-2">
                 <span className="font-serif text-lg sm:text-xl font-bold tracking-tight text-slate-900 group-hover:text-emerald-700 transition-colors">
                   {user.hotel_name || "Dolphin Hotels"}
-                </span>
-                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60 uppercase tracking-wide">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  AI Vision
                 </span>
               </div>
               <span className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">

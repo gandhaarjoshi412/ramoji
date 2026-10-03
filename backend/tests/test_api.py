@@ -24,6 +24,16 @@ def test_login_invalid_password():
     )
     assert response.status_code == 401
 
+def test_login_manager():
+    response = client.post(
+        "/api/auth/login",
+        json={"email": "manager@dolphinhotels.com", "password": "admin123"}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "access_token" in data
+    assert data["user"]["email"] == "manager@dolphinhotels.com"
+
 def test_get_current_user(auth_token):
     headers = {"Authorization": f"Bearer {auth_token}"}
     response = client.get("/api/auth/me", headers=headers)
@@ -116,3 +126,47 @@ def test_create_event_and_flow(auth_token):
     assert dash["total_events"] >= 1
     assert dash["total_waste_kg"] > 0
     assert dash["total_waste_cost"] > 0
+
+def test_mobile_waste_scan_ingestion_and_idempotency(auth_token):
+    import uuid
+    unique_scan_id = f"test_mobile_scan_{uuid.uuid4().hex[:8]}"
+    headers = {"Authorization": f"Bearer {auth_token}"}
+
+    # 1. Submit mobile scan JSON payload
+    mobile_scan_payload = {
+        "scan_id": unique_scan_id,
+        "event_id": 1,
+        "ai_food_prediction": "Steamed Basmati Rice",
+        "ai_confidence": 0.94,
+        "timestamp": "2026-10-04T12:00:00Z",
+        "model_version": "platesight-v1.0-dishes58",
+        "detections": [
+            {"class_id": 0, "class_name": "Steamed Basmati Rice", "confidence": 0.94, "coverage_percent": 18.7, "instance_count": 1},
+            {"class_id": 3, "class_name": "Dal Tadka", "confidence": 0.91, "coverage_percent": 11.3, "instance_count": 1}
+        ]
+    }
+
+    res = client.post("/api/events/1/waste", json=mobile_scan_payload, headers=headers)
+    assert res.status_code == 201
+    data = res.json()
+    assert data["event_id"] == 1
+    assert data["ai_food_prediction"] == "Steamed Basmati Rice"
+    assert data["ai_confidence"] == 0.94
+    assert data["estimated_weight_grams"] > 0
+    assert data["cost_per_gram"] > 0
+    assert data["estimated_waste_cost"] > 0
+    assert len(data["detected_items"]) == 2
+    assert data["detected_items"][0]["name"] == "Steamed Basmati Rice"
+    first_scan_id = data["id"]
+
+    # 2. Test Idempotency: Submit duplicate scan_id
+    res_dup = client.post("/api/events/1/waste", json=mobile_scan_payload, headers=headers)
+    assert res_dup.status_code in [200, 201]
+    dup_data = res_dup.json()
+    assert dup_data["id"] == first_scan_id
+    assert dup_data["ai_food_prediction"] == "Steamed Basmati Rice"
+
+    # 3. Verify food catalog contains 58 dishes
+    from ai.food_classes import YOLO11M_SEG_CLASSES
+    assert len(YOLO11M_SEG_CLASSES) == 58
+

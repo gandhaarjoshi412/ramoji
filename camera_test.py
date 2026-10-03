@@ -14,11 +14,9 @@ from ultralytics import YOLO
 def find_weights():
     script_dir = Path(__file__).resolve().parent
     candidates = [
+        script_dir / "models" / "trained" / "foodwaste_yolo11m_seg_31cls.pt",
         script_dir / "best.pt",
-        script_dir / "ai" / "weights" / "yolo11m-seg.pt",
-        Path("/home/gandhaar/kaggle/foodwaste_yolo11m_merged15k/weights/best.pt"),
-        script_dir / "ai" / "weights" / "yolo26-seg.pt",
-        script_dir / "yolo26_weights" / "best.pt",
+        script_dir / "models" / "trained" / "indianfood_yolo11m_det_31cls.pt",
         Path("best.pt"),
     ]
     for c in candidates:

@@ -38,6 +38,47 @@ def build_scan_response(scan: WasteScan) -> WasteScanResponse:
         except Exception:
             mask = scan.segmentation_mask
 
+    parsed_detected_items = []
+    if getattr(scan, "detected_items", None):
+        try:
+            raw = json.loads(scan.detected_items)
+            if isinstance(raw, list):
+                from app.schemas.waste_scan import DetectedFoodItem
+                parsed_detected_items = [
+                    DetectedFoodItem(
+                        name=it.get("name", "Unknown"),
+                        confidence=round(float(it.get("confidence", 0.0)), 4),
+                        confidence_percent=int(it.get("confidence_percent", int(float(it.get("confidence", 0.0)) * 100))),
+                        class_id=it.get("class_id"),
+                        coverage_percent=it.get("coverage_percent"),
+                        instance_count=it.get("instance_count", 1)
+                    )
+                    for it in raw
+                ]
+        except Exception:
+            pass
+
+    if not parsed_detected_items and scan.notes:
+        import re
+        matches = re.findall(r'([A-Za-z0-9\s/]+)\s*\((\d+)%\)', scan.notes)
+        if matches:
+            from app.schemas.waste_scan import DetectedFoodItem
+            parsed_detected_items = [
+                DetectedFoodItem(name=m[0].strip(), confidence=int(m[1])/100.0, confidence_percent=int(m[1]))
+                for m in matches
+            ]
+
+    if not parsed_detected_items:
+        from app.schemas.waste_scan import DetectedFoodItem
+        conf = scan.ai_confidence or 0.0
+        parsed_detected_items = [
+            DetectedFoodItem(
+                name=scan.final_food_name or scan.ai_food_prediction or "Unknown food",
+                confidence=conf,
+                confidence_percent=int(conf * 100)
+            )
+        ]
+
     return WasteScanResponse(
         id=scan.id,
         event_id=scan.event_id,
@@ -49,6 +90,7 @@ def build_scan_response(scan: WasteScan) -> WasteScanResponse:
         ai_confidence=scan.ai_confidence,
         bounding_box=bbox,
         segmentation_mask=mask,
+        detected_items=parsed_detected_items,
         estimated_weight_grams=scan.estimated_weight_grams,
         estimation_confidence=scan.estimation_confidence,
         measurement_method=scan.measurement_method,
@@ -232,6 +274,22 @@ async def scan_waste_image(
             print(f"Warning: Failed to save annotated image: {e}")
 
     # 9. Save Waste Scan Record
+    detection_summary = None
+    detected_items_json = None
+    if analysis_result.detections and len(analysis_result.detections) > 0:
+        detected_items_json = json.dumps([
+            {
+                "name": d.food_name,
+                "confidence": round(float(d.confidence), 4),
+                "confidence_percent": int(d.confidence * 100)
+            }
+            for d in analysis_result.detections
+        ])
+        if len(analysis_result.detections) > 1:
+            detection_summary = "Multi-dish Tray: " + ", ".join([
+                f"{d.food_name} ({int(d.confidence * 100)}%)" for d in analysis_result.detections
+            ])
+
     scan = WasteScan(
         event_id=event_id,
         food_item_id=matched_food.id if matched_food else None,
@@ -242,6 +300,7 @@ async def scan_waste_image(
         ai_confidence=confidence,
         bounding_box=json.dumps(bbox) if bbox else None,
         segmentation_mask=json.dumps(mask) if mask else None,
+        detected_items=detected_items_json,
         estimated_weight_grams=quantity_result.estimated_weight_grams,
         estimation_confidence=quantity_result.estimation_confidence,
         measurement_method=quantity_result.estimation_method,
@@ -251,7 +310,7 @@ async def scan_waste_image(
         ai_model_version=analysis_result.model_version,
         human_verified=False,
         is_low_confidence=is_low_confidence,
-        notes=None
+        notes=detection_summary
     )
     db.add(scan)
 

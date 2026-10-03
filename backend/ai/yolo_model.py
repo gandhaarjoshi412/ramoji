@@ -1,41 +1,72 @@
 import os
 import io
-from typing import List, Optional
+import math
+from typing import List, Optional, Tuple, Dict, Any
 from PIL import Image
 
 from ai.model_interface import FoodVisionModel, VisionAnalysisResult, Detection
+from ai.food_classes import normalize_label
+
+def bbox_iou(b1: List[float], b2: List[float]) -> float:
+    """Calculates Intersection-over-Union between two [x1, y1, x2, y2] bounding boxes."""
+    x1 = max(b1[0], b2[0])
+    y1 = max(b1[1], b2[1])
+    x2 = min(b1[2], b2[2])
+    y2 = min(b1[3], b2[3])
+    inter = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    area1 = max(0.0, b1[2] - b1[0]) * max(0.0, b1[3] - b1[1])
+    area2 = max(0.0, b2[2] - b2[0]) * max(0.0, b2[3] - b2[1])
+    union = area1 + area2 - inter
+    return inter / union if union > 0 else 0.0
 
 class YoloFoodVisionModel(FoodVisionModel):
     """
-    Production implementation for YOLO segmentation model.
-    Loads model weights from AI_MODEL_PATH and extracts bounding boxes, classes,
-    confidences, polygon segmentation masks, and annotated bounding-box visual image.
+    Dual-Model Ensemble Food Vision Engine.
+    Fuses predictions from:
+      1. Primary YOLO11m-seg model (high-resolution segmentation masks & catering buffet dishes)
+      2. Secondary YOLO11m-det model (specialized Indian banquet & meal tray partitioned dishes)
+    Outputs comprehensive bounding boxes, polygon masks, dish classifications, and visual HUD.
     """
     def __init__(self, model_path: str = "best.pt"):
         self.model_path = model_path
         self.model = None
+        self.det_model = None
         self._load_model()
 
     def _find_weights(self) -> str:
         candidates = [
             self.model_path,
             os.path.join(os.getcwd(), self.model_path),
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models/trained/foodwaste_yolo11m_seg_31cls.pt"),
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), "models/trained/foodwaste_yolo11m_seg_31cls.pt"),
+            os.path.join(os.getcwd(), "models/trained/foodwaste_yolo11m_seg_31cls.pt"),
+            "/home/gandhaar/project/ramoji/models/trained/foodwaste_yolo11m_seg_31cls.pt",
             os.path.join(os.path.dirname(os.path.dirname(__file__)), self.model_path),
             os.path.join(os.path.dirname(os.path.dirname(__file__)), "best.pt"),
-            os.path.join(os.path.dirname(os.path.dirname(__file__)), "ai/weights/yolo11m-seg.pt"),
-            os.path.join(os.path.dirname(os.path.dirname(__file__)), "ai/weights/yolo26-seg.pt"),
             os.path.join(os.getcwd(), "best.pt"),
-            os.path.join(os.getcwd(), "ai/weights/yolo11m-seg.pt"),
-            os.path.join(os.getcwd(), "ai/weights/yolo26-seg.pt"),
+            "/home/gandhaar/project/ramoji/backend/best.pt",
             "/home/gandhaar/project/ramoji/best.pt",
-            "/home/gandhaar/project/ramoji/ai/weights/yolo11m-seg.pt",
-            "/home/gandhaar/kaggle/foodwaste_yolo11m_merged15k/weights/best.pt",
-            "/home/gandhaar/project/ramoji/ai/weights/yolo26-seg.pt",
         ]
         for c in candidates:
             if c and os.path.exists(c):
                 return os.path.abspath(c)
         return self.model_path
+
+    def _find_det_weights(self) -> Optional[str]:
+        candidates = [
+            "/home/gandhaar/project/ramoji/models/trained/indianfood_yolo11m_det_31cls.pt",
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models/trained/indianfood_yolo11m_det_31cls.pt"),
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), "models/trained/indianfood_yolo11m_det_31cls.pt"),
+            os.path.join(os.getcwd(), "models/trained/indianfood_yolo11m_det_31cls.pt"),
+            "/home/gandhaar/project/ramoji/yolo26_weights/best.pt",
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "yolo26_weights/best.pt"),
+            os.path.join(os.getcwd(), "../yolo26_weights/best.pt"),
+            os.path.join(os.getcwd(), "yolo26_weights/best.pt"),
+        ]
+        for c in candidates:
+            if c and os.path.exists(c):
+                return os.path.abspath(c)
+        return None
 
     def _load_model(self):
         resolved_path = self._find_weights()
@@ -48,6 +79,18 @@ class YoloFoodVisionModel(FoodVisionModel):
             from ultralytics import YOLO
             self.model = YOLO(resolved_path)
             self.model_path = resolved_path
+
+            # Attempt to load secondary detection model for ensemble tray/plate coverage
+            det_path = self._find_det_weights()
+            if det_path and os.path.exists(det_path):
+                try:
+                    self.det_model = YOLO(det_path)
+                    print(f"Dual-Model Ensemble active: Primary Seg ({resolved_path}) + Secondary Det ({det_path})")
+                except Exception as det_err:
+                    print(f"Warning: Could not load secondary det model: {det_err}")
+                    self.det_model = None
+            else:
+                self.det_model = None
         except ImportError:
             raise ImportError(
                 "The 'ultralytics' library is required to run real YOLO inference. "
@@ -63,20 +106,20 @@ class YoloFoodVisionModel(FoodVisionModel):
         if self.model is None:
             self._load_model()
 
-        img = Image.open(io.BytesIO(image_bytes))
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         width, height = img.size
 
-        # Run inference with high-resolution segmentation masks
-        results = self.model(img, retina_masks=True, conf=0.25)
-        detections: List[Detection] = []
+        # 1. Primary Segmentation Inference (conf=0.14 for high recall, imgsz=1024 for small compartment coverage)
+        results_seg = self.model(img, retina_masks=True, conf=0.14, imgsz=1024, verbose=False)
 
-        annotated_bytes: Optional[bytes] = None
-        for r in results:
-            boxes = r.boxes
-            masks = getattr(r, "masks", None)
+        seg_dets: List[Dict[str, Any]] = []
+        if len(results_seg) > 0:
+            r0 = results_seg[0]
+            boxes = r0.boxes
+            masks = getattr(r0, "masks", None)
             for i, box in enumerate(boxes):
                 cls_id = int(box.cls[0].item())
-                class_name = r.names[cls_id] if hasattr(r, "names") else f"Class_{cls_id}"
+                class_name = r0.names[cls_id] if hasattr(r0, "names") else f"Class_{cls_id}"
                 conf = float(box.conf[0].item())
                 xyxy = box.xyxy[0].tolist()
 
@@ -86,40 +129,188 @@ class YoloFoodVisionModel(FoodVisionModel):
                     if len(poly) >= 3:
                         mask_data = [[round(float(p[0]), 1), round(float(p[1]), 1)] for p in poly]
 
-                detections.append(
-                    Detection(
-                        food_name=class_name,
-                        confidence=round(conf, 4),
-                        bounding_box=[round(x, 1) for x in xyxy],
-                        mask=mask_data
-                    )
-                )
+                seg_dets.append({
+                    "food_name": class_name,
+                    "confidence": conf,
+                    "bounding_box": [round(x, 1) for x in xyxy],
+                    "mask": mask_data,
+                    "source": "seg"
+                })
 
-        # Generate annotated image with polygon masks, bounding boxes, dish name, and confidence
-        if len(results) > 0:
+        # 2. Secondary Detection Inference (covers partitioned meal trays, rice, and specialized curries)
+        det_dets: List[Dict[str, Any]] = []
+        if self.det_model is not None:
             try:
-                import cv2
-                annotated_bgr = results[0].plot(masks=True, boxes=True, labels=True, conf=True)
-                success, encoded_img = cv2.imencode('.jpg', annotated_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
-                if success:
-                    annotated_bytes = encoded_img.tobytes()
-            except Exception:
-                try:
-                    annotated_bgr = results[0].plot(masks=True, boxes=True, labels=True, conf=True)
-                    annotated_rgb = annotated_bgr[:, :, ::-1]
-                    annotated_pil = Image.fromarray(annotated_rgb)
-                    buf = io.BytesIO()
-                    annotated_pil.save(buf, format="JPEG", quality=92)
-                    annotated_bytes = buf.getvalue()
-                except Exception:
-                    pass
+                results_det = self.det_model(img, conf=0.14, imgsz=1024, verbose=False)
+                if len(results_det) > 0:
+                    rd = results_det[0]
+                    for box in rd.boxes:
+                        cls_id = int(box.cls[0].item())
+                        class_name = rd.names[cls_id] if hasattr(rd, "names") else f"Class_{cls_id}"
+                        conf = float(box.conf[0].item())
+                        xyxy = box.xyxy[0].tolist()
+                        det_dets.append({
+                            "food_name": class_name,
+                            "confidence": conf,
+                            "bounding_box": [round(x, 1) for x in xyxy],
+                            "mask": None,
+                            "source": "det"
+                        })
+            except Exception as det_inf_err:
+                print(f"Warning: Secondary det inference failed: {det_inf_err}")
 
+        # 3. Intelligent IoU Ensemble Fusion
+        fused_candidates: List[Dict[str, Any]] = []
+        matched_det_indices = set()
+
+        for s in seg_dets:
+            best_iou = 0.0
+            best_d_idx = -1
+            for d_idx, d in enumerate(det_dets):
+                iou = bbox_iou(s["bounding_box"], d["bounding_box"])
+                if iou > best_iou:
+                    best_iou = iou
+                    best_d_idx = d_idx
+
+            if best_iou >= 0.35 and best_d_idx >= 0:
+                matched_det_indices.add(best_d_idx)
+                d = det_dets[best_d_idx]
+                # If det model has higher confidence, adopt its class classification
+                chosen_name = d["food_name"] if d["confidence"] > s["confidence"] else s["food_name"]
+                chosen_conf = max(s["confidence"], d["confidence"])
+                fused_candidates.append({
+                    "food_name": chosen_name,
+                    "confidence": chosen_conf,
+                    "bounding_box": s["bounding_box"],
+                    "mask": s["mask"],
+                })
+            else:
+                fused_candidates.append(s)
+
+        # Include unmatched det detections (e.g. rice or dishes missed by seg model)
+        for d_idx, d in enumerate(det_dets):
+            if d_idx not in matched_det_indices:
+                max_iou = max([bbox_iou(d["bounding_box"], fc["bounding_box"]) for fc in fused_candidates], default=0.0)
+                if max_iou < 0.35:
+                    fused_candidates.append(d)
+
+        # 4. Deduplication NMS across fused candidates
+        fused_candidates = sorted(fused_candidates, key=lambda x: x["confidence"], reverse=True)
+        final_fused: List[Dict[str, Any]] = []
+        for cand in fused_candidates:
+            if not any(bbox_iou(cand["bounding_box"], existing["bounding_box"]) > 0.50 for existing in final_fused):
+                final_fused.append(cand)
+
+        # 5. Build Final Detections
+        final_detections: List[Detection] = [
+            Detection(
+                food_name=normalize_label(item["food_name"]),
+                confidence=round(float(item["confidence"]), 4),
+                bounding_box=item["bounding_box"],
+                mask=item["mask"]
+            )
+            for item in final_fused
+        ]
+
+        # 6. Generate Annotated Visual Image with High-Contrast Multi-Dish HUD
+        annotated_bytes: Optional[bytes] = None
+        try:
+            import cv2
+            import numpy as np
+
+            # Distinct vibrant color palette (BGR)
+            PALETTE = [
+                (52, 211, 153),   # Emerald green
+                (245, 158, 11),   # Amber gold
+                (59, 130, 246),   # Royal blue
+                (236, 72, 153),   # Vibrant pink
+                (139, 92, 246),   # Violet
+                (20, 184, 166),   # Teal
+                (249, 115, 22),   # Deep orange
+            ]
+
+            img_bgr = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+            overlay = img_bgr.copy()
+
+            # Step A: Draw semi-transparent segmentation polygon masks
+            for idx, item in enumerate(final_detections):
+                if item.mask and len(item.mask) >= 3:
+                    color = PALETTE[idx % len(PALETTE)]
+                    pts = np.array(item.mask, np.int32).reshape((-1, 1, 2))
+                    cv2.fillPoly(overlay, [pts], color)
+
+            cv2.addWeighted(overlay, 0.40, img_bgr, 0.60, 0, img_bgr)
+
+            # Step B: Draw crisp polygon boundaries, bounding boxes, and label pills
+            for idx, item in enumerate(final_detections):
+                color = PALETTE[idx % len(PALETTE)]
+                x1, y1, x2, y2 = map(int, item.bounding_box)
+
+                # Boundary outline
+                if item.mask and len(item.mask) >= 3:
+                    pts = np.array(item.mask, np.int32).reshape((-1, 1, 2))
+                    cv2.polylines(img_bgr, [pts], isClosed=True, color=color, thickness=2)
+
+                # Bounding box
+                cv2.rectangle(img_bgr, (x1, y1), (x2, y2), color, 3)
+
+                # Smart Label Pill (Edge-aware & HUD-collision safe)
+                label = f"{item.food_name} {int(item.confidence * 100)}%"
+                font_scale = 0.65
+                thickness = 2
+                (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+                pill_w = tw + 14
+                pill_h = th + 12
+
+                # Horizontal bounds check
+                if x1 + pill_w > width - 4:
+                    px1 = max(4, width - pill_w - 4)
+                    px2 = width - 4
+                else:
+                    px1 = max(4, x1)
+                    px2 = px1 + pill_w
+
+                # Vertical bounds & top-left HUD occlusion check
+                near_top = y1 < (th + 20)
+                in_top_left_hud_zone = (px1 < 450 and y1 < 140)
+
+                if in_top_left_hud_zone:
+                    # Clear below the top-left floating card
+                    py1 = max(y1 + 35, 140)
+                    py2 = min(height - 4, py1 + pill_h)
+                    text_y = py1 + th + 4
+                elif near_top:
+                    # Near top edge of canvas: draw inside box to prevent clipping
+                    py1 = y1 + 4
+                    py2 = min(height - 4, py1 + pill_h)
+                    text_y = py1 + th + 4
+                else:
+                    # Standard: draw directly above box
+                    py1 = max(4, y1 - pill_h)
+                    py2 = y1
+                    text_y = py2 - 6
+
+                text_x = px1 + 7
+
+                # Draw label pill with adaptive luminance text contrast
+                cv2.rectangle(img_bgr, (px1, py1), (px2, py2), color, -1)
+                lum = 0.114 * color[0] + 0.587 * color[1] + 0.299 * color[2]
+                text_color = (0, 0, 0) if lum > 135 else (255, 255, 255)
+                cv2.putText(img_bgr, label, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness)
+
+            success, encoded_img = cv2.imencode('.jpg', img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
+            if success:
+                annotated_bytes = encoded_img.tobytes()
+        except Exception as anno_err:
+            print(f"Warning: Custom annotation rendering fallback triggered: {anno_err}")
+
+        model_title = "YOLO11m-DualEnsemble" if self.det_model is not None else "YOLO11m-seg"
         return VisionAnalysisResult(
-            detections=detections,
+            detections=final_detections,
             image_width=width,
             image_height=height,
-            model_name="YOLO11m-seg",
-            model_version="foodwaste-merged15k-v1.0",
+            model_name=model_title,
+            model_version="foodwaste-ensemble-v2.0",
             is_mock=False,
             annotated_image_bytes=annotated_bytes
         )

@@ -226,9 +226,7 @@ export default function EventAnalyticsPage() {
                     )}
                   </div>
                   <div className="text-xs text-slate-500 font-normal mt-1 flex items-center gap-3 flex-wrap">
-                    <span>AI Confidence: <strong className="text-slate-800">{Math.round(scan.ai_confidence * 100)}%</strong></span>
-                    <span>•</span>
-                    <span>Model: <strong className="text-slate-800">{scan.ai_model_name}</strong></span>
+                    <span>Confidence: <strong className="text-slate-800">{Math.round(scan.ai_confidence * 100)}%</strong></span>
                     <span>•</span>
                     <span>{new Date(scan.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                   </div>
