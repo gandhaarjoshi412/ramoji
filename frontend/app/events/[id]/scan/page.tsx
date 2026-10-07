@@ -268,11 +268,11 @@ export default function WasteScannerPage() {
     ) {
       return url;
     }
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL
-      ? process.env.NEXT_PUBLIC_API_URL
-      : typeof window !== "undefined"
-      ? ""
-      : "http://localhost:8000";
+    const apiUrl = typeof window !== "undefined"
+      ? (process.env.NEXT_PUBLIC_API_URL && !process.env.NEXT_PUBLIC_API_URL.includes("localhost") && !process.env.NEXT_PUBLIC_API_URL.includes("127.0.0.1")
+          ? process.env.NEXT_PUBLIC_API_URL
+          : "")
+      : (process.env.BACKEND_INTERNAL_URL || "http://127.0.0.1:8000");
     return `${apiUrl}${url.startsWith("/") ? "" : "/"}${url}`;
   };
 

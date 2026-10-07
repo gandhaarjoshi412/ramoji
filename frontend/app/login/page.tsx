@@ -15,6 +15,14 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (user) {
+      if (typeof window !== "undefined") {
+        const searchParams = new URLSearchParams(window.location.search);
+        const callbackUrl = searchParams.get("callbackUrl");
+        if (callbackUrl && callbackUrl.startsWith("/")) {
+          router.replace(callbackUrl);
+          return;
+        }
+      }
       router.replace("/dashboard");
     }
   }, [user, router]);

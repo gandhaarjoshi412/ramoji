@@ -1,0 +1,77 @@
+description: Ultralytics YOLO11m-seg model trained on /kaggle/working/dataset/platesight_dishes58.yaml
+author: Ultralytics
+date: '2026-10-04T00:37:09.415729+05:30'
+version: 8.4.154
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: segment
+head: Segment
+batch: 1
+imgsz:
+- 640
+- 640
+names:
+  0: steamed_rice
+  1: biryani
+  2: pulao_fried_rice
+  3: dal_curry
+  4: sambar_rasam
+  5: roti_flatbread
+  6: naan_kulcha
+  7: paratha
+  8: puri_bhatura
+  9: dosa
+  10: idli
+  11: vada
+  12: paneer_curry
+  13: dry_paneer_tikka
+  14: mixed_vegetable_curry
+  15: dry_vegetable_dish
+  16: chicken_curry
+  17: dry_chicken_tikka
+  18: mutton_curry
+  19: fish_curry
+  20: egg_curry
+  21: chana_masala
+  22: salad_raw_veg
+  23: raita_curd
+  24: chutney
+  25: samosa_snack
+  26: gulab_jamun
+  27: rasgulla
+  28: halwa_sheera
+  29: kheer_payasam
+  30: cut_fruits
+  31: bhindi
+  32: bread
+  33: curd
+  34: curd_rice
+  35: dosakaya_pachadi
+  36: fish_fingers
+  37: gutti_vankaya_kura
+  38: hyderabadi_chicken_biryani
+  39: kimchi_salad
+  40: mirchi_ka_salan
+  41: murgh_jahangiri_shorba
+  42: murgh_malai_kebab
+  43: nellore_chepala_pulusu
+  44: palankura_pappu
+  45: paneer_pasanda
+  46: paneer_tikka
+  47: pickle
+  48: rasam
+  49: salad
+  50: sprout_salad
+  51: subz_nizami_handi
+  52: tadka_raita
+  53: takari_birayani
+  54: thai_fruit_salad
+  55: tiramisu
+  56: veg_manchurian
+  57: vegetable_manchow_soup
+args:
+  batch: 1
+  quantize: null
+channels: 3
+end2end: false

@@ -255,7 +255,7 @@ class YoloFoodVisionModel(FoodVisionModel):
                 cv2.rectangle(img_bgr, (x1, y1), (x2, y2), color, 3)
 
                 # Smart Label Pill (Edge-aware & HUD-collision safe)
-                label = f"{item.food_name} {int(item.confidence * 100)}%"
+                label = f"{item.food_name} {round(item.confidence * 100)}%"
                 font_scale = 0.65
                 thickness = 2
                 (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)

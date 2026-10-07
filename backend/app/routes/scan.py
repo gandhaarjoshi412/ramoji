@@ -281,13 +281,13 @@ async def scan_waste_image(
             {
                 "name": d.food_name,
                 "confidence": round(float(d.confidence), 4),
-                "confidence_percent": int(d.confidence * 100)
+                "confidence_percent": round(float(d.confidence) * 100)
             }
             for d in analysis_result.detections
         ])
         if len(analysis_result.detections) > 1:
             detection_summary = "Multi-dish Tray: " + ", ".join([
-                f"{d.food_name} ({int(d.confidence * 100)}%)" for d in analysis_result.detections
+                f"{d.food_name} ({round(float(d.confidence) * 100)}%)" for d in analysis_result.detections
             ])
 
     scan = WasteScan(
