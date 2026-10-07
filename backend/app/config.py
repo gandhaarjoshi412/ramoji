@@ -43,8 +43,8 @@ class Settings(BaseSettings):
     S3_SECRET_KEY: str = os.getenv("S3_SECRET_KEY", "")
 
     # Demo & Hotel Configuration
-    DEMO_EMAIL: str = os.getenv("DEMO_EMAIL", "demo@example.com")
-    DEMO_PASSWORD: str = os.getenv("DEMO_PASSWORD", "demo123")
+    DEMO_EMAIL: str = os.getenv("DEMO_EMAIL", "gandhaar.joshi@platesight.in")
+    DEMO_PASSWORD: str = os.getenv("DEMO_PASSWORD", "pass1234")
     DEMO_HOTEL_NAME: str = os.getenv("DEMO_HOTEL_NAME", "Dolphin Hotels")
     
     CORS_ORIGINS: list[str] = [

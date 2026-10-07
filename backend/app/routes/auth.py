@@ -47,7 +47,7 @@ def login(
             detail="Invalid email or password",
         )
 
-    if not user.is_active:
+    if user.is_active is False:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is deactivated. Contact administrator.",
