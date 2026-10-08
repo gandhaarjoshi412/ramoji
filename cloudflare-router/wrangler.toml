@@ -1,0 +1,7 @@
+name = "ramoji-edge-router"
+main = "src/index.js"
+compatibility_date = "2026-10-08"
+
+routes = [
+  { pattern = "ai.platesight.in/*", zone_name = "platesight.in" }
+]
