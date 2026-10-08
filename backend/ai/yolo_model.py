@@ -270,7 +270,10 @@ class YoloFoodVisionModel(FoodVisionModel):
         except Exception as anno_err:
             print(f"Warning: Custom annotation rendering fallback triggered: {anno_err}")
 
-        model_title = "YOLO11m-DualEnsemble" if self.det_model is not None else "YOLO11m-seg"
+        if self.model_path and str(self.model_path).endswith(".onnx"):
+            model_title = "YOLO11m-seg-ONNX-INT8" if "int8" in str(self.model_path).lower() else "YOLO11m-seg-ONNX"
+        else:
+            model_title = "YOLO11m-DualEnsemble" if self.det_model is not None else "YOLO11m-seg"
         return VisionAnalysisResult(
             detections=final_detections,
             image_width=width,
