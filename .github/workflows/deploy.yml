@@ -65,6 +65,7 @@ jobs:
 
             echo "=== Restarting Services via systemd ==="
             sudo systemctl daemon-reload
+            sudo systemctl stop ramoji-frontend || true
             sudo systemctl restart ramoji-backend ramoji-frontend
 
             echo "=== Verifying Service Health ==="
