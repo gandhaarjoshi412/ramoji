@@ -52,8 +52,17 @@ jobs:
             cd "$APP_DIR"
 
             echo "=== Pulling latest repository code ==="
+            # Preserve active SQLite database across deployments
+            if [ -f "$APP_DIR/backend/food_waste.db" ]; then
+              cp "$APP_DIR/backend/food_waste.db" /tmp/food_waste_backup.db
+            fi
+
             git fetch origin main
             git reset --hard origin/main
+
+            if [ -f /tmp/food_waste_backup.db ]; then
+              cp /tmp/food_waste_backup.db "$APP_DIR/backend/food_waste.db"
+            fi
 
             echo "=== Unpacking pre-built frontend artifacts ==="
             rm -rf "$APP_DIR/frontend/.next"
