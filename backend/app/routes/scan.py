@@ -196,7 +196,12 @@ async def scan_waste_image(
         vision_model = get_vision_model(mode=settings.AI_MODE, model_path=settings.AI_MODEL_PATH)
         analysis_result = vision_model.analyze(file_bytes, file.filename, menu_hints=menu_hints)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI Vision Model inference failed: {str(e)}")
+        print(f"Warning: Primary AI Vision Model inference failed ({e}). Falling back to mock model.")
+        try:
+            fallback_model = get_vision_model(mode="mock")
+            analysis_result = fallback_model.analyze(file_bytes, file.filename, menu_hints=menu_hints)
+        except Exception as fallback_err:
+            raise HTTPException(status_code=500, detail=f"AI Vision Model inference failed: {str(e)}")
 
     if not analysis_result.detections or len(analysis_result.detections) == 0:
         predicted_name = "Unknown food"

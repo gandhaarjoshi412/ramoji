@@ -73,8 +73,10 @@ class YoloFoodVisionModel(FoodVisionModel):
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         width, height = img.size
 
-        # 1. Primary Segmentation Inference (conf=0.14 for high recall, imgsz=1024 for small compartment coverage)
-        results_seg = self.model(img, retina_masks=True, conf=0.14, imgsz=1024, verbose=False)
+        # 1. Primary Segmentation Inference (conf=0.14 for high recall, imgsz=512, retina_masks=False for cloud efficiency)
+        import torch
+        with torch.inference_mode():
+            results_seg = self.model(img, retina_masks=False, conf=0.14, imgsz=512, verbose=False)
 
         seg_dets: List[Dict[str, Any]] = []
         if len(results_seg) > 0:
