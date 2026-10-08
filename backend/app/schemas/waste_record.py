@@ -3,7 +3,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 
 class WasteRecordCreate(BaseModel):
-    event_food_id: int
+    event_food_id: Optional[int] = None
     gross_weight_kg: float = Field(..., ge=0.0, description="Gross weight on scale including container")
     container_weight_kg: float = Field(default=0.0, ge=0.0, description="Tare weight of the container")
     waste_reason: str = Field(

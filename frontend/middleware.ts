@@ -17,6 +17,7 @@ export function middleware(request: NextRequest) {
   // 2. Protected paths check
   const protectedRoutes = [
     "/dashboard",
+    "/analytics",
     "/events",
     "/foods",
     "/recipes",

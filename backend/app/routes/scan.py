@@ -417,3 +417,30 @@ def update_event_scan(
 ):
     return verify_or_correct_scan(id=id, payload=payload, current_user=current_user, db=db)
 
+@router.delete("/api/events/{event_id}/scans/{id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/api/scans/{id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_waste_scan(
+    id: int,
+    event_id: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    scan_query = db.query(WasteScan).join(Event, WasteScan.event_id == Event.id).filter(
+        WasteScan.id == id,
+        Event.hotel_id == current_user.hotel_id
+    )
+    if event_id:
+        scan_query = scan_query.filter(WasteScan.event_id == event_id)
+    scan = scan_query.first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Waste scan not found")
+
+    ev_id = scan.event_id
+    db.delete(scan)
+    db.commit()
+
+    from app.services.event_sync import sync_event_scans_to_event_foods
+    sync_event_scans_to_event_foods(db, ev_id, create_missing=False)
+    return None
+
+

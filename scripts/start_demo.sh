@@ -42,7 +42,7 @@ echo "=================================================="
 
 # 1. Start Backend (FastAPI + GPU YOLO)
 echo "Starting Backend service..."
-nohup "${ROOT_DIR}/backend/venv/bin/uvicorn" app.main:app \
+setsid "${ROOT_DIR}/backend/venv/bin/uvicorn" app.main:app \
   --app-dir "${ROOT_DIR}/backend" \
   --host "${BACKEND_HOST}" \
   --port "${BACKEND_PORT}" \
@@ -57,7 +57,7 @@ echo "${BACKEND_PID}" > "${ROOT_DIR}/run/backend.pid"
 echo "Starting Frontend service..."
 (
   cd "${ROOT_DIR}/frontend"
-  exec nohup npm run start -- -p "${FRONTEND_PORT}" -H "${FRONTEND_HOST}" \
+  exec setsid npm run start -- -p "${FRONTEND_PORT}" -H "${FRONTEND_HOST}" \
     </dev/null > "${ROOT_DIR}/logs/frontend.log" 2>&1
 ) &
 FRONTEND_PID=$!
@@ -67,7 +67,7 @@ echo "${FRONTEND_PID}" > "${ROOT_DIR}/run/frontend.pid"
 # 3. If bound to 127.0.0.1, bridge Tailscale interface specifically to localhost
 if [ "${BACKEND_HOST}" = "127.0.0.1" ] && [ -n "${LAPTOP_TAILSCALE_IP}" ]; then
   echo "Bridging Tailscale IP ${LAPTOP_TAILSCALE_IP}:${BACKEND_PORT} -> 127.0.0.1:${BACKEND_PORT}..."
-  nohup socat "TCP4-LISTEN:${BACKEND_PORT},bind=${LAPTOP_TAILSCALE_IP},reuseaddr,fork" "TCP4:127.0.0.1:${BACKEND_PORT}" \
+  setsid socat "TCP4-LISTEN:${BACKEND_PORT},bind=${LAPTOP_TAILSCALE_IP},reuseaddr,fork" "TCP4:127.0.0.1:${BACKEND_PORT}" \
     </dev/null > "${ROOT_DIR}/logs/socat_backend.log" 2>&1 &
   SOCAT_BACKEND_PID=$!
   disown "${SOCAT_BACKEND_PID}" 2>/dev/null || true
@@ -76,7 +76,7 @@ fi
 
 if [ "${FRONTEND_HOST}" = "127.0.0.1" ] && [ -n "${LAPTOP_TAILSCALE_IP}" ]; then
   echo "Bridging Tailscale IP ${LAPTOP_TAILSCALE_IP}:${FRONTEND_PORT} -> 127.0.0.1:${FRONTEND_PORT}..."
-  nohup socat "TCP4-LISTEN:${FRONTEND_PORT},bind=${LAPTOP_TAILSCALE_IP},reuseaddr,fork" "TCP4:127.0.0.1:${FRONTEND_PORT}" \
+  setsid socat "TCP4-LISTEN:${FRONTEND_PORT},bind=${LAPTOP_TAILSCALE_IP},reuseaddr,fork" "TCP4:127.0.0.1:${FRONTEND_PORT}" \
     </dev/null > "${ROOT_DIR}/logs/socat_frontend.log" 2>&1 &
   SOCAT_FRONTEND_PID=$!
   disown "${SOCAT_FRONTEND_PID}" 2>/dev/null || true

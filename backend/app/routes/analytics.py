@@ -2,7 +2,7 @@ import re
 import os
 from datetime import datetime, date, timedelta, timezone
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, status
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, distinct
 
@@ -65,9 +65,6 @@ def get_analytics_overview(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Ensure seed data exists
-    seed_analytics_if_empty(db)
-
     # Base query
     query = db.query(AnalyticsRecord)
 
@@ -1139,3 +1136,32 @@ def get_event_analytics(
         food_breakdown=breakdown,
         scans=[build_scan_response(s) for s in sorted(scans, key=lambda x: x.created_at, reverse=True)],
     )
+
+@router.delete("/api/analytics/records/{id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_analytics_record(
+    id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    rec = db.query(AnalyticsRecord).filter(AnalyticsRecord.id == id).first()
+    if not rec:
+        raise HTTPException(status_code=404, detail="Analytics record not found")
+    db.delete(rec)
+    db.commit()
+    return None
+
+@router.delete("/api/analytics/records", status_code=status.HTTP_204_NO_CONTENT)
+def clear_analytics_records(
+    hotel: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin permissions required.")
+    query = db.query(AnalyticsRecord)
+    if hotel and hotel != "all":
+        query = query.filter(AnalyticsRecord.hotel_name == hotel)
+    query.delete(synchronize_session=False)
+    db.commit()
+    return None
+

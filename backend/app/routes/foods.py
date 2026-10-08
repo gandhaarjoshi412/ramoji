@@ -5,6 +5,7 @@ from typing import List, Optional
 from app.database import get_db
 from app.models.user import User
 from app.models.food_item import FoodItem
+from app.models.waste_scan import WasteScan
 from app.schemas.food_item import FoodItemCreate, FoodItemResponse, FoodItemUpdate
 from app.services.cost_engine import FoodCostService
 from app.utils.security import get_current_user
@@ -141,6 +142,7 @@ def delete_food_item(
     if not item:
         raise HTTPException(status_code=404, detail="Food item not found")
 
+    db.query(WasteScan).filter(WasteScan.food_item_id == id).update({"food_item_id": None})
     db.delete(item)
     db.commit()
     return None

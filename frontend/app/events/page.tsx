@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Camera,
   Building2,
+  Trash2,
 } from "lucide-react";
 
 export default function EventsPage() {
@@ -64,6 +65,20 @@ export default function EventsPage() {
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     fetchEvents();
+  };
+
+  const handleDeleteEvent = async (id: number, name: string) => {
+    if (!confirm(`Are you sure you want to permanently delete "${name}"?`)) {
+      return;
+    }
+    try {
+      await apiRequest(`/api/events/${id}`, {
+        method: "DELETE",
+      });
+      fetchEvents();
+    } catch (err: any) {
+      alert(err.message || "Failed to delete event");
+    }
   };
 
   return (
@@ -248,6 +263,13 @@ export default function EventsPage() {
                       >
                         <FileText className="w-4 h-4" />
                       </Link>
+                      <button
+                        onClick={() => handleDeleteEvent(event.id, event.name)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-100 transition-colors active:scale-95 cursor-pointer"
+                        title="Delete Event"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </td>
                 </tr>

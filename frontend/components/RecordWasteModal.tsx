@@ -84,6 +84,7 @@ export const RecordWasteModal: React.FC<RecordWasteModalProps> = ({
       await apiRequest(`/api/events/${eventId}/foods/${selectedFoodId}/waste`, {
         method: "POST",
         body: JSON.stringify({
+          event_food_id: Number(selectedFoodId),
           gross_weight_kg: gross,
           container_weight_kg: container,
           waste_reason: wasteReason,

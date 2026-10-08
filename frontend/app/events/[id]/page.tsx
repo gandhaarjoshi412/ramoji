@@ -88,6 +88,20 @@ export default function EventDetailPage() {
     }
   };
 
+  const handleDeleteEvent = async () => {
+    if (!confirm(`Are you sure you want to permanently delete "${event?.name}" and all associated menu records?`)) {
+      return;
+    }
+    try {
+      await apiRequest(`/api/events/${eventId}`, {
+        method: "DELETE",
+      });
+      router.push("/events");
+    } catch (err: any) {
+      alert(err.message || "Failed to delete event");
+    }
+  };
+
   if (authLoading || (loading && !event)) {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center space-y-4">
@@ -199,6 +213,14 @@ export default function EventDetailPage() {
               <Camera className="w-4 h-4" />
               Scan Waste
             </Link>
+
+            <button
+              onClick={handleDeleteEvent}
+              title="Delete Event"
+              className="p-2.5 rounded-xl text-rose-400 hover:text-white bg-rose-950/40 hover:bg-rose-600/80 border border-rose-800/40 transition-all cursor-pointer active:scale-95"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </div>

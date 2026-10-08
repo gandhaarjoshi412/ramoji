@@ -7,11 +7,10 @@ from app.models.food_item import FoodItem
 from app.models.recipe import Recipe
 from app.services.cost_engine import FoodCostService
 
-def sync_event_scans_to_event_foods(db: Session, event_id: int) -> None:
+def sync_event_scans_to_event_foods(db: Session, event_id: int, create_missing: bool = True) -> None:
     """
-    Automatically synchronizes camera WasteScans to the event's banquet menu (EventFood).
-    Ensures any food item detected in a camera waste scan appears in the banquet's
-    'Banquet Menu & Portion Yield' list with its leftover weight and monetary loss.
+    Synchronizes camera WasteScans to the event's banquet menu (EventFood).
+    If create_missing is False, only updates existing menu items and never resurrects deleted dishes.
     """
     scans = db.query(WasteScan).filter(WasteScan.event_id == event_id).all()
     if not scans:
@@ -91,17 +90,18 @@ def sync_event_scans_to_event_foods(db: Session, event_id: int) -> None:
         prep_weight = max(base_prep, round(total_leftover_kg * 1.2, 1))
 
         if fid not in existing_food_ids:
-            # Auto-create EventFood entry
-            ef = EventFood(
-                event_id=event_id,
-                food_item_id=fid,
-                prepared_weight_kg=prep_weight,
-                estimated_cost_per_kg=round(cost_per_kg, 2),
-                notes=f"Auto-synced from {len(fscans)} camera waste scan{'s' if len(fscans) > 1 else ''}"
-            )
-            db.add(ef)
-            existing_food_ids[fid] = ef
-            has_changes = True
+            if create_missing:
+                # Auto-create EventFood entry
+                ef = EventFood(
+                    event_id=event_id,
+                    food_item_id=fid,
+                    prepared_weight_kg=prep_weight,
+                    estimated_cost_per_kg=round(cost_per_kg, 2),
+                    notes=f"Auto-synced from {len(fscans)} camera waste scan{'s' if len(fscans) > 1 else ''}"
+                )
+                db.add(ef)
+                existing_food_ids[fid] = ef
+                has_changes = True
         else:
             ef = existing_food_ids[fid]
             if ef.prepared_weight_kg is None or ef.prepared_weight_kg <= 0:

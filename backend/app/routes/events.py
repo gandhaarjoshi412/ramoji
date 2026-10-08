@@ -8,6 +8,8 @@ from app.models.user import User
 from app.models.event import Event
 from app.models.event_food import EventFood
 from app.models.waste_record import WasteRecord
+from app.models.waste_scan import WasteScan
+from app.models.analytics_record import AnalyticsRecord
 from app.schemas.event import (
     EventCreate,
     EventUpdate,
@@ -253,8 +255,8 @@ def get_event(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Auto-sync any camera waste scans to banquet event menu items and yield metrics
-    sync_event_scans_to_event_foods(db, event_id)
+    # Only recalculate metrics for existing menu items, never resurrect deleted items
+    sync_event_scans_to_event_foods(db, event_id, create_missing=False)
 
     event = (
         db.query(Event)
@@ -315,6 +317,10 @@ def delete_event(
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
+    # Disassociate analytics records
+    db.query(AnalyticsRecord).filter(AnalyticsRecord.event_id == event_id).update({"event_id": None})
+    # Delete waste scans explicitly
+    db.query(WasteScan).filter(WasteScan.event_id == event_id).delete()
     db.delete(event)
     db.commit()
     return None

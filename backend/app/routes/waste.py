@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.orm import Session, joinedload
-from typing import List, Union
+from typing import List, Union, Optional
 
 from app.database import get_db
 from app.models.user import User
@@ -68,10 +68,16 @@ def get_event_waste_records(
     response_model=Union[WasteScanResponse, WasteRecordResponse],
     status_code=status.HTTP_201_CREATED
 )
+@router.post(
+    "/api/events/{event_id}/foods/{event_food_id}/waste",
+    response_model=Union[WasteScanResponse, WasteRecordResponse],
+    status_code=status.HTTP_201_CREATED
+)
 async def record_event_waste(
     event_id: int,
     payload: Union[WasteScanPayload, WasteRecordCreate],
     response: Response,
+    event_food_id: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -170,8 +176,12 @@ async def record_event_waste(
         return build_scan_response(scan)
 
     # 2. Otherwise handle manual scale record (WasteRecordCreate)
+    target_ef_id = event_food_id or getattr(payload, "event_food_id", None)
+    if not target_ef_id:
+        raise HTTPException(status_code=400, detail="Event food ID is required to record waste")
+
     ef = db.query(EventFood).filter(
-        EventFood.id == payload.event_food_id,
+        EventFood.id == target_ef_id,
         EventFood.event_id == event_id
     ).first()
     if not ef:
@@ -261,18 +271,22 @@ def update_waste_record(
     return build_waste_response(record)
 
 @router.delete("/api/waste/{waste_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/api/events/{event_id}/waste/{waste_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_waste_record(
     waste_id: int,
+    event_id: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    record = (
+    query = (
         db.query(WasteRecord)
         .join(EventFood, WasteRecord.event_food_id == EventFood.id)
         .join(Event, EventFood.event_id == Event.id)
         .filter(WasteRecord.id == waste_id, Event.hotel_id == current_user.hotel_id)
-        .first()
     )
+    if event_id:
+        query = query.filter(Event.id == event_id)
+    record = query.first()
     if not record:
         raise HTTPException(status_code=404, detail="Waste record not found")
 

@@ -235,11 +235,15 @@ def resolve_food_metadata(
 
     return matched, display_name, density, depth, cost
 
-def sync_food_catalog_for_hotel(db: Session, hotel_id: int):
+def sync_food_catalog_for_hotel(db: Session, hotel_id: int, only_if_empty: bool = True):
     """
-    Ensures all 58 YOLO11m segmentation classes exist in the hotel's food item catalog.
+    Ensures YOLO11m segmentation classes exist in the hotel's food item catalog.
+    If only_if_empty is True, respects user deletions and does not re-add deleted items.
     """
     existing_items = db.query(FoodItem).filter(FoodItem.hotel_id == hotel_id).all()
+    if only_if_empty and len(existing_items) > 0:
+        return 0
+
     existing_names = {item.name.lower().strip() for item in existing_items}
 
     added = 0

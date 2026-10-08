@@ -9,6 +9,7 @@ from app.models.event import Event
 from app.models.event_food import EventFood
 from app.models.food_item import FoodItem
 from app.models.waste_record import WasteRecord
+from app.models.waste_scan import WasteScan
 from app.schemas.event_food import EventFoodResponse, EventFoodUpdate
 from app.schemas.waste_record import WasteRecordResponse
 from app.services.calculation import calculate_waste_percentage, calculate_waste_cost
@@ -213,6 +214,12 @@ def delete_event_food(
     ef = db.query(EventFood).filter(EventFood.id == event_food_id, EventFood.event_id == event_id).first()
     if not ef:
         raise HTTPException(status_code=404, detail="Event food item not found")
+
+    # Delete all camera waste scans associated with this event food item
+    db.query(WasteScan).filter(
+        WasteScan.event_id == event_id,
+        WasteScan.food_item_id == ef.food_item_id
+    ).delete()
 
     db.delete(ef)
     db.commit()

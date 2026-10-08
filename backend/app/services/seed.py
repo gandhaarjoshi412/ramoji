@@ -34,7 +34,25 @@ def seed_database(db: Session) -> None:
                 is_active=True
             )
             db.add(admin)
-            db.commit()
+
+        # Ensure test accounts exist with demo password
+        for test_email in ["test@platesight", "test@platesight.in"]:
+            t_user = db.query(User).filter(User.email == test_email).first()
+            if not t_user:
+                t_user = User(
+                    name="Test Account",
+                    email=test_email,
+                    password_hash=hash_password(settings.DEMO_PASSWORD),
+                    role="admin",
+                    hotel_id=existing_hotel.id,
+                    is_active=True
+                )
+                db.add(t_user)
+            else:
+                t_user.is_active = True
+                t_user.failed_login_attempts = 0
+                t_user.locked_until = None
+        db.commit()
         return
 
     print("Seeding database with Dolphin Hotels, staff, ingredients, recipes, and AI waste scans...")
