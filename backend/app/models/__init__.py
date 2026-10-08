@@ -8,6 +8,7 @@ from app.models.ingredient import Ingredient
 from app.models.recipe import Recipe
 from app.models.recipe_ingredient import RecipeIngredient
 from app.models.waste_scan import WasteScan
+from app.models.analytics_record import AnalyticsRecord
 
 __all__ = [
     "Hotel",
@@ -21,4 +22,5 @@ __all__ = [
     "Recipe",
     "RecipeIngredient",
     "WasteScan",
+    "AnalyticsRecord",
 ]

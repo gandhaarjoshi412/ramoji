@@ -76,4 +76,6 @@ backend/uploads/*
 # Scratch and backup files
 scratch/
 *.bak
+.wrangler/
+*.tsbuildinfo
 

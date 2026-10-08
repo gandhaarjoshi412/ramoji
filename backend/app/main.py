@@ -54,6 +54,8 @@ async def lifespan(app: FastAPI):
         hotel = db.query(Hotel).first()
         if hotel:
             sync_food_catalog_for_hotel(db, hotel.id)
+        from app.routes.analytics import seed_analytics_if_empty
+        seed_analytics_if_empty(db)
     finally:
         db.close()
     yield

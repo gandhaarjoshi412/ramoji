@@ -22,6 +22,7 @@ import {
   Award,
   Layers,
   ChefHat,
+  BarChart3,
 } from "lucide-react";
 
 export default function DashboardPage() {
@@ -103,6 +104,13 @@ export default function DashboardPage() {
               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
             </button>
             <Link
+              href="/analytics"
+              className="py-2.5 px-4 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 rounded-xl text-emerald-300 font-bold text-xs inline-flex items-center gap-2 transition-all active:scale-95 shadow-xs"
+            >
+              <BarChart3 className="w-4 h-4 text-emerald-400" />
+              Analytics Dashboard
+            </Link>
+            <Link
               href="/events/new"
               className="hotel-btn-emerald py-2.5 px-4 text-xs font-bold active:scale-95"
             >
@@ -111,6 +119,21 @@ export default function DashboardPage() {
             </Link>
           </div>
         </div>
+      </div>
+
+      {/* Navigation Segment Switcher */}
+      <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/80 w-fit no-print">
+        <button className="px-4 py-2 rounded-xl text-xs font-bold bg-white text-slate-900 shadow-xs border border-slate-200/80 flex items-center gap-2">
+          <ChefHat className="w-3.5 h-3.5 text-slate-600" />
+          Culinary Overview
+        </button>
+        <Link
+          href="/analytics"
+          className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-white/60 transition-all flex items-center gap-2"
+        >
+          <BarChart3 className="w-3.5 h-3.5 text-emerald-600" />
+          Analytics & Intelligence
+        </Link>
       </div>
 
       {error && (

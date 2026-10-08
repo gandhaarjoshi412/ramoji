@@ -302,3 +302,5 @@ export interface WasteRecord {
   weight_source: string;
   image_url?: string;
 }
+
+export * from "./analytics";

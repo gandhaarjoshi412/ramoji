@@ -16,6 +16,7 @@ export const Navbar = () => {
 
   const navLinks = [
     { href: "/dashboard", label: "Dashboard" },
+    { href: "/analytics", label: "Analytics" },
     { href: "/events", label: "Banquets" },
     { href: "/foods", label: "Foods & Density" },
     { href: "/recipes", label: "Recipes & Cost" },
