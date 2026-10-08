@@ -160,6 +160,13 @@ async def scan_waste_image(
     if not event:
         raise HTTPException(status_code=404, detail="Banquet event not found")
 
+    # 0. Check Feature Restrictions
+    if current_user.email and current_user.email.lower().strip() in ("test@platesight", "test@platesight.in"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Photo scanning is disabled on this test account. All other features (Events, Analytics, Catalog, Recipes, Settings) remain fully accessible."
+        )
+
     # 1. Validate File Format & Read Content
     allowed_extensions = [".jpg", ".jpeg", ".png", ".webp"]
     file_ext = "." + file.filename.split(".")[-1].lower() if "." in file.filename else ""

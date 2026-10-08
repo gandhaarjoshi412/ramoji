@@ -179,7 +179,18 @@ export default function WasteScannerPage() {
     }
   };
 
+  const isTestAccount = Boolean(
+    user?.email &&
+      (user.email.toLowerCase().startsWith("test@platesight") ||
+       user.email.toLowerCase() === "test@platesight")
+  );
+
   const processScan = async (fileBlob: Blob) => {
+    if (isTestAccount) {
+      setErrorMessage("Photo scanning is disabled on this test account. All other sections (Events, Catalog, Analytics, Recipes, Settings) are fully enabled.");
+      setStage("error");
+      return;
+    }
     setStage("uploading");
     setStageMessage("Transmitting high-resolution dish capture...");
     setErrorMessage(null);
@@ -354,6 +365,19 @@ export default function WasteScannerPage() {
           >
             Dismiss
           </button>
+        </div>
+      )}
+
+      {/* Test Account Restriction Banner */}
+      {isTestAccount && (
+        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-950 text-xs font-medium flex items-start gap-3 shadow-2xs">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-semibold text-amber-900">Test Account Notice</p>
+            <p className="text-amber-800/90 mt-0.5">
+              Photo scanning is disabled on this test account. All other features (Dashboard Analytics, Event Management, Food Catalog, Recipes, Ingredients, and Settings) remain fully operational.
+            </p>
+          </div>
         </div>
       )}
 
