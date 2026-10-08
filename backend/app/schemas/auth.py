@@ -23,7 +23,7 @@ class UserResponse(BaseModel):
     role: str
     hotel_id: int
     hotel_name: Optional[str] = None
-    is_active: bool = True
+    is_active: Optional[bool] = True
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
