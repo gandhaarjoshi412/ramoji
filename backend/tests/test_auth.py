@@ -259,6 +259,7 @@ def test_me_endpoint_with_cookie_and_bearer():
 
 
 def test_refresh_invalid_or_wrong_token_type():
+    client.cookies.clear()
     # 1. Missing refresh token
     res_empty = client.post("/api/auth/refresh")
     assert res_empty.status_code == 401

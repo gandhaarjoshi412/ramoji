@@ -1,0 +1,84 @@
+name: Build & Deploy to Server
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies & Build
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: ""
+          BACKEND_INTERNAL_URL: "http://127.0.0.1:8000"
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package Frontend Build Artifacts
+        run: |
+          tar -czf /tmp/frontend-build.tar.gz -C frontend --exclude='cache' .next
+
+      - name: Setup SSH Connection
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy to VPS Server
+        run: |
+          scp /tmp/frontend-build.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/frontend-build.tar.gz
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} 'bash -e -s' << 'EOF'
+            APP_DIR="/home/ubuntu/ramoji"
+            cd "$APP_DIR"
+
+            echo "=== Pulling latest repository code ==="
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "=== Unpacking pre-built frontend artifacts ==="
+            rm -rf "$APP_DIR/frontend/.next"
+            tar -xzf /tmp/frontend-build.tar.gz -C "$APP_DIR/frontend"
+            rm -f /tmp/frontend-build.tar.gz
+
+            echo "=== Ensuring backend venv dependencies are up to date ==="
+            "$APP_DIR/backend/venv/bin/pip" install --no-cache-dir -r "$APP_DIR/backend/requirements.txt" --extra-index-url https://download.pytorch.org/whl/cpu || true
+
+            echo "=== Restarting Services via systemd ==="
+            sudo systemctl daemon-reload
+            sudo systemctl restart ramoji-backend ramoji-frontend
+
+            echo "=== Verifying Service Health ==="
+            for i in {1..20}; do
+              if curl -sf http://127.0.0.1:8000/api/health >/dev/null && curl -sf http://127.0.0.1:3000/ >/dev/null; then
+                echo "✅ Both services report healthy!"
+                break
+              fi
+              echo "Waiting for services to become ready... ($i/20)"
+              sleep 2
+            done
+
+            echo "=== Health Responses ==="
+            curl -f http://127.0.0.1:8000/api/health
+            echo ""
+            curl -f -I http://127.0.0.1:3000/
+          EOF

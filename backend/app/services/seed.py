@@ -17,40 +17,23 @@ from app.models.recipe_ingredient import RecipeIngredient
 from app.models.waste_scan import WasteScan
 from app.services.cost_engine import FoodCostService
 
-def create_demo_food_image(filename: str, title: str, color: tuple):
-    upload_dir = Path(settings.UPLOAD_DIR)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    filepath = upload_dir / filename
-    if filepath.exists():
-        return f"/uploads/{filename}"
-
-    # Generate realistic banquet food buffet photo placeholder
-    img = Image.new("RGB", (800, 600), color=color)
-    draw = ImageDraw.Draw(img)
-    # Draw serving dish plate border
-    draw.ellipse([80, 60, 720, 540], outline=(240, 240, 240), width=12)
-    draw.ellipse([100, 80, 700, 520], fill=(color[0] + 15, color[1] + 10, color[2] + 10))
-    # Draw title text
-    draw.text((250, 280), f"Banquet Dish:\n{title}", fill=(255, 255, 255))
-    img.save(filepath, "JPEG")
-    return f"/uploads/{filename}"
-
 def seed_database(db: Session) -> None:
     existing_hotel = db.query(Hotel).first()
     if existing_hotel:
         from ai.food_classes import sync_food_catalog_for_hotel
         sync_food_catalog_for_hotel(db, existing_hotel.id)
-        # Ensure manager user exists
-        mgr = db.query(User).filter(User.email == "manager@dolphinhotels.com").first()
-        if not mgr:
-            mgr = User(
-                name="Banquet Operations Manager",
-                email="manager@dolphinhotels.com",
-                password_hash=hash_password("admin123"),
+        # Ensure admin user exists with configured settings
+        admin = db.query(User).filter(User.email == settings.DEMO_EMAIL).first()
+        if not admin:
+            admin = User(
+                name="Gandhaar Joshi",
+                email=settings.DEMO_EMAIL,
+                password_hash=hash_password(settings.DEMO_PASSWORD),
                 role="admin",
-                hotel_id=existing_hotel.id
+                hotel_id=existing_hotel.id,
+                is_active=True
             )
-            db.add(mgr)
+            db.add(admin)
             db.commit()
         return
 
@@ -64,47 +47,16 @@ def seed_database(db: Session) -> None:
     db.add(hotel)
     db.flush()
 
-    # 2. Staff & Admin Users
+    # 2. Admin User
     admin_user = User(
-        name="Banquet Operations Manager",
+        name="Gandhaar Joshi",
         email=settings.DEMO_EMAIL,
         password_hash=hash_password(settings.DEMO_PASSWORD),
         role="admin",
-        hotel_id=hotel.id
+        hotel_id=hotel.id,
+        is_active=True
     )
-    users_to_add = [admin_user]
-
-    if settings.DEMO_EMAIL != "demo@example.com":
-        users_to_add.append(
-            User(
-                name="Demo Admin",
-                email="demo@example.com",
-                password_hash=hash_password("demo123"),
-                role="admin",
-                hotel_id=hotel.id
-            )
-        )
-
-    if settings.DEMO_EMAIL != "manager@dolphinhotels.com":
-        users_to_add.append(
-            User(
-                name="Banquet Operations Manager",
-                email="manager@dolphinhotels.com",
-                password_hash=hash_password("admin123"),
-                role="admin",
-                hotel_id=hotel.id
-            )
-        )
-
-    staff_user = User(
-        name="Kitchen Steward Staff",
-        email="staff@example.com",
-        password_hash=hash_password("staff123"),
-        role="staff",
-        hotel_id=hotel.id
-    )
-    users_to_add.append(staff_user)
-    db.add_all(users_to_add)
+    db.add(admin_user)
     db.flush()
 
     # 3. Ingredients with Unit Costs
@@ -266,132 +218,7 @@ def seed_database(db: Session) -> None:
 
     db.commit()
 
-    # 6. Realistic Events
-    # Event 1: Sharma Wedding
-    wedding = Event(
-        hotel_id=hotel.id,
-        name="Sharma Wedding",
-        event_type="Wedding",
-        venue="Grand Ballroom",
-        event_date=date(2026, 9, 12),
-        expected_guests=500,
-        actual_guests=467,
-        status="Completed",
-        notes="Grand evening wedding reception with live tandoor and dinner buffet."
-    )
-    # Event 2: Corporate Annual Dinner
-    corp = Event(
-        hotel_id=hotel.id,
-        name="Corporate Annual Dinner",
-        event_type="Corporate",
-        venue="Summit Hall",
-        event_date=date(2026, 9, 8),
-        expected_guests=250,
-        actual_guests=230,
-        status="Completed",
-        notes="Annual tech gala dinner."
-    )
-    # Event 3: Conference Lunch
-    conf = Event(
-        hotel_id=hotel.id,
-        name="Conference Lunch",
-        event_type="Conference",
-        venue="Crystal Lounge",
-        event_date=date(2026, 9, 4),
-        expected_guests=150,
-        actual_guests=140,
-        status="Completed",
-        notes="Medical association lunch buffet."
-    )
-    # Event 4: Reception Dinner
-    reception = Event(
-        hotel_id=hotel.id,
-        name="Reception Dinner",
-        event_type="Social",
-        venue="Poolside Lawn",
-        event_date=date(2026, 9, 1),
-        expected_guests=300,
-        actual_guests=285,
-        status="Completed",
-        notes="Golden anniversary reception."
-    )
-
-    db.add_all([wedding, corp, conf, reception])
-    db.commit()
-
-    # Add Event Foods
-    for ev in [wedding, corp, conf, reception]:
-        for fname in ["Biryani", "Paneer Butter Masala", "Dal Tadka", "Steamed Basmati Rice"]:
-            ef = EventFood(
-                event_id=ev.id,
-                food_item_id=food_map[fname].id,
-                prepared_weight_kg=80.0 if fname == "Biryani" else 45.0,
-                estimated_cost_per_kg=food_map[fname].default_cost_per_kg
-            )
-            db.add(ef)
-    db.commit()
-
-    # 7. Create Demo Images and AI Waste Scans
-    # Generate placeholder images for scans
-    img_biryani = create_demo_food_image("biryani_waste_scan.jpg", "Biryani Buffet Pan", (180, 90, 40))
-    img_paneer = create_demo_food_image("paneer_waste_scan.jpg", "Paneer Handi", (210, 110, 40))
-    img_dal = create_demo_food_image("dal_waste_scan.jpg", "Dal Tadka Vessel", (200, 160, 40))
-    img_rice = create_demo_food_image("rice_waste_scan.jpg", "Steamed Rice Tray", (190, 190, 190))
-
-    demo_scans = [
-        # Sharma Wedding Scans (Total waste ~42.3 kg)
-        (wedding.id, "Biryani", 15500.0, 0.96, img_biryani, [120, 100, 680, 500], True, None, None, "Excess buffet preparation"),
-        (wedding.id, "Paneer Butter Masala", 9200.0, 0.93, img_paneer, [140, 120, 660, 480], True, None, None, "Low consumption"),
-        (wedding.id, "Dal Tadka", 6100.0, 0.91, img_dal, [160, 140, 640, 460], True, None, None, "Service leftover"),
-        (wedding.id, "Steamed Basmati Rice", 4800.0, 0.95, img_rice, [100, 80, 700, 520], True, None, None, "Overproduction"),
-        (wedding.id, "Gulab Jamun", 3900.0, 0.89, img_biryani, [180, 160, 620, 440], True, None, None, "Serving tray leftover"),
-        (wedding.id, "Butter Naan", 2800.0, 0.92, img_paneer, [150, 130, 650, 470], True, None, None, "Cold service bread"),
-
-        # Corporate Annual Dinner Scans
-        (corp.id, "Biryani", 7500.0, 0.95, img_biryani, [120, 100, 680, 500], True, None, None, "Excess preparation"),
-        (corp.id, "Paneer Butter Masala", 4200.0, 0.92, img_paneer, [140, 120, 660, 480], True, None, None, "Overproduction"),
-        (corp.id, "Dal Tadka", 3100.0, 0.94, img_dal, [160, 140, 640, 460], True, None, None, "Service leftover"),
-
-        # Conference Lunch Scans
-        (conf.id, "Steamed Basmati Rice", 3200.0, 0.96, img_rice, [100, 80, 700, 520], True, None, None, "Low attendance"),
-        (conf.id, "Dal Tadka", 2400.0, 0.90, img_dal, [160, 140, 640, 460], True, None, None, "Service leftover"),
-
-        # Reception Dinner Scans
-        (reception.id, "Biryani", 8400.0, 0.97, img_biryani, [120, 100, 680, 500], True, None, None, "Overproduction"),
-        (reception.id, "Paneer Butter Masala", 5100.0, 0.94, img_paneer, [140, 120, 660, 480], True, None, None, "Excess preparation"),
-    ]
-
-    for ev_id, fname, weight_g, conf, img_url, bbox, verified, human_food, human_weight, notes in demo_scans:
-        fi = food_map[fname]
-        cost_per_g = FoodCostService.get_cost_per_gram_for_food(db, fi)
-        effective_w = human_weight if human_weight is not None else weight_g
-        waste_cost = round(effective_w * cost_per_g, 2)
-
-        scan = WasteScan(
-            event_id=ev_id,
-            food_item_id=fi.id,
-            image_url=img_url,
-            created_at=datetime.now(timezone.utc) - timedelta(days=(wedding.id - ev_id) * 3),
-            ai_food_prediction=fname,
-            ai_confidence=conf,
-            bounding_box=json.dumps(bbox),
-            segmentation_mask=json.dumps([[150, 150], [650, 150], [650, 450], [150, 450]]),
-            estimated_weight_grams=weight_g,
-            estimation_confidence=0.76,
-            measurement_method="camera_estimate",
-            cost_per_gram=cost_per_g,
-            estimated_waste_cost=waste_cost,
-            ai_model_name="YOLO26-seg",
-            ai_model_version="food-model-v0.1",
-            human_verified=verified,
-            human_food_correction=human_food,
-            human_weight_correction=human_weight,
-            is_low_confidence=conf < 0.70,
-            notes=notes
-        )
-        db.add(scan)
-
     from ai.food_classes import sync_food_catalog_for_hotel
     sync_food_catalog_for_hotel(db, hotel.id)
     db.commit()
-    print("Database seeding completed successfully with realistic recipes and 58 AI food classes.")
+    print("Database seeding completed successfully with master catalog recipes and AI food classes.")

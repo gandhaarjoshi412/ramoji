@@ -1,4 +1,9 @@
+import os
 import pytest
+
+TEST_DB_PATH = os.path.abspath("test_food_waste.db")
+os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
+
 from app.database import Base, engine, SessionLocal
 from app.services.seed import seed_database
 
@@ -21,6 +26,50 @@ def setup_test_db():
     db = SessionLocal()
     try:
         seed_database(db)
+        from app.models.event import Event
+        from app.models.user import User
+        from app.utils.security import hash_password
+        from datetime import date
+        existing_ev = db.query(Event).filter(Event.id == 1).first()
+        if not existing_ev:
+            test_ev = Event(
+                id=1,
+                hotel_id=1,
+                name="Banquet Test Event",
+                event_type="Wedding",
+                venue="Grand Ballroom",
+                event_date=date(2026, 9, 12),
+                expected_guests=500,
+                actual_guests=467,
+                status="Active",
+                notes="Automated test fixture event"
+            )
+            db.add(test_ev)
+            db.commit()
+
+        mgr = db.query(User).filter(User.email == "manager@dolphinhotels.com").first()
+        if not mgr:
+            db.add(User(
+                name="Banquet Operations Manager",
+                email="manager@dolphinhotels.com",
+                password_hash=hash_password("admin123"),
+                role="admin",
+                hotel_id=1,
+                is_active=True
+            ))
+            db.commit()
+
+        staff = db.query(User).filter(User.email == "staff@example.com").first()
+        if not staff:
+            db.add(User(
+                name="Kitchen Steward Staff",
+                email="staff@example.com",
+                password_hash=hash_password("staff123"),
+                role="staff",
+                hotel_id=1,
+                is_active=True
+            ))
+            db.commit()
     finally:
         db.close()
     yield

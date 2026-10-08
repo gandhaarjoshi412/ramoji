@@ -28,8 +28,8 @@ class Settings(BaseSettings):
     
     # AI Configuration
     AI_MODE: str = os.getenv("AI_MODE", "yolo")  # "yolo" or "mock"
-    AI_MODEL_PATH: str = os.getenv("AI_MODEL_PATH", "models/trained/foodwaste_yolo11m_seg_58cls.pt")
-    AI_DET_MODEL_PATH: str = os.getenv("AI_DET_MODEL_PATH", "models/trained/indianfood_yolo11m_det_31cls.pt")
+    AI_MODEL_PATH: str = os.getenv("AI_MODEL_PATH", "models/trained/foodwaste_yolo11m_seg_31cls.pt")
+    AI_DET_MODEL_PATH: str = os.getenv("AI_DET_MODEL_PATH", "")
     AI_CONFIDENCE_THRESHOLD: float = float(os.getenv("AI_CONFIDENCE_THRESHOLD", "0.70"))
     AI_MODEL_NAME: str = os.getenv("AI_MODEL_NAME", "YOLO11m-seg")
     AI_MODEL_VERSION: str = os.getenv("AI_MODEL_VERSION", "foodwaste-merged15k-v1.0")

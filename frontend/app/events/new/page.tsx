@@ -17,9 +17,8 @@ export default function NewEventPage() {
   const [eventDate, setEventDate] = useState(
     new Date().toISOString().split("T")[0]
   );
-  const [expectedGuests, setExpectedGuests] = useState<string>("500");
-  const [actualGuests, setActualGuests] = useState<string>("467");
-  const [status, setStatus] = useState("Active");
+  const [expectedGuests, setExpectedGuests] = useState<string>("");
+  const [status, setStatus] = useState("Upcoming");
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,9 +37,8 @@ export default function NewEventPage() {
     }
 
     const exp = parseInt(expectedGuests) || 0;
-    const act = parseInt(actualGuests) || 0;
 
-    if (exp < 0 || act < 0) {
+    if (exp < 0) {
       setError("Guest count cannot be negative.");
       return;
     }
@@ -55,7 +53,7 @@ export default function NewEventPage() {
           venue: venue.trim() || undefined,
           event_date: eventDate,
           expected_guests: exp,
-          actual_guests: act,
+          actual_guests: 0,
           status,
           notes: notes.trim() || undefined,
         }),
@@ -176,37 +174,20 @@ export default function NewEventPage() {
             </div>
           </div>
 
-          {/* Guests: Expected & Actual */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                Expected Guests
-              </label>
-              <input
-                type="number"
-                min="0"
-                placeholder="e.g. 500"
-                value={expectedGuests}
-                onChange={(e) => setExpectedGuests(e.target.value)}
-                className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 focus:bg-white transition-all"
-              />
-              <p className="text-[10px] text-slate-400 mt-1">Contracted headcount</p>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                Actual Guests Served
-              </label>
-              <input
-                type="number"
-                min="0"
-                placeholder="e.g. 467"
-                value={actualGuests}
-                onChange={(e) => setActualGuests(e.target.value)}
-                className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 focus:bg-white transition-all"
-              />
-              <p className="text-[10px] text-slate-400 mt-1">For per-guest waste analytics</p>
-            </div>
+          {/* Expected Guests */}
+          <div>
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+              Expected Guests
+            </label>
+            <input
+              type="number"
+              min="0"
+              placeholder="e.g. 500"
+              value={expectedGuests}
+              onChange={(e) => setExpectedGuests(e.target.value)}
+              className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 focus:bg-white transition-all"
+            />
+            <p className="text-[10px] text-slate-400 mt-1">Contracted headcount</p>
           </div>
 
           {/* Operational Notes */}

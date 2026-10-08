@@ -37,60 +37,24 @@ class YoloFoodVisionModel(FoodVisionModel):
         candidates = [
             self.model_path,
             os.path.join(os.getcwd(), self.model_path),
-            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models/trained/foodwaste_yolo11m_seg_31cls.pt"),
-            os.path.join(os.path.dirname(os.path.dirname(__file__)), "models/trained/foodwaste_yolo11m_seg_31cls.pt"),
-            os.path.join(os.getcwd(), "models/trained/foodwaste_yolo11m_seg_31cls.pt"),
-            "/home/gandhaar/project/ramoji/models/trained/foodwaste_yolo11m_seg_31cls.pt",
             os.path.join(os.path.dirname(os.path.dirname(__file__)), self.model_path),
-            os.path.join(os.path.dirname(os.path.dirname(__file__)), "best.pt"),
-            os.path.join(os.getcwd(), "best.pt"),
-            "/home/gandhaar/project/ramoji/backend/best.pt",
-            "/home/gandhaar/project/ramoji/best.pt",
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), self.model_path),
         ]
         for c in candidates:
             if c and os.path.exists(c):
                 return os.path.abspath(c)
-        return self.model_path
-
-    def _find_det_weights(self) -> Optional[str]:
-        candidates = [
-            "/home/gandhaar/project/ramoji/models/trained/indianfood_yolo11m_det_31cls.pt",
-            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models/trained/indianfood_yolo11m_det_31cls.pt"),
-            os.path.join(os.path.dirname(os.path.dirname(__file__)), "models/trained/indianfood_yolo11m_det_31cls.pt"),
-            os.path.join(os.getcwd(), "models/trained/indianfood_yolo11m_det_31cls.pt"),
-            "/home/gandhaar/project/ramoji/yolo26_weights/best.pt",
-            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "yolo26_weights/best.pt"),
-            os.path.join(os.getcwd(), "../yolo26_weights/best.pt"),
-            os.path.join(os.getcwd(), "yolo26_weights/best.pt"),
-        ]
-        for c in candidates:
-            if c and os.path.exists(c):
-                return os.path.abspath(c)
-        return None
+        raise FileNotFoundError(
+            f"Specified YOLO model weights not found at '{self.model_path}'."
+        )
 
     def _load_model(self):
         resolved_path = self._find_weights()
-        if not os.path.exists(resolved_path):
-            raise FileNotFoundError(
-                f"YOLO model weights not found at '{self.model_path}' (checked candidate: {resolved_path}). "
-                f"Please ensure best.pt exists."
-            )
         try:
             from ultralytics import YOLO
             self.model = YOLO(resolved_path)
             self.model_path = resolved_path
-
-            # Attempt to load secondary detection model for ensemble tray/plate coverage
-            det_path = self._find_det_weights()
-            if det_path and os.path.exists(det_path):
-                try:
-                    self.det_model = YOLO(det_path)
-                    print(f"Dual-Model Ensemble active: Primary Seg ({resolved_path}) + Secondary Det ({det_path})")
-                except Exception as det_err:
-                    print(f"Warning: Could not load secondary det model: {det_err}")
-                    self.det_model = None
-            else:
-                self.det_model = None
+            self.det_model = None
+            print(f"Loaded YOLO model: {resolved_path}")
         except ImportError:
             raise ImportError(
                 "The 'ultralytics' library is required to run real YOLO inference. "
