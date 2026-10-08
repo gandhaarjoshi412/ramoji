@@ -34,6 +34,11 @@ def seed_database(db: Session) -> None:
                 is_active=True
             )
             db.add(admin)
+        else:
+            admin.password_hash = hash_password(settings.DEMO_PASSWORD)
+            admin.is_active = True
+            admin.failed_login_attempts = 0
+            admin.locked_until = None
 
         # Ensure test accounts exist with demo password
         for test_email in ["test@platesight", "test@platesight.in"]:
@@ -49,6 +54,7 @@ def seed_database(db: Session) -> None:
                 )
                 db.add(t_user)
             else:
+                t_user.password_hash = hash_password(settings.DEMO_PASSWORD)
                 t_user.is_active = True
                 t_user.failed_login_attempts = 0
                 t_user.locked_until = None
