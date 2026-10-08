@@ -40,7 +40,13 @@ def login(
     response: Response,
     db: Session = Depends(get_db),
 ):
-    user = db.query(User).filter(User.email == payload.email.lower().strip()).first()
+    input_email = payload.email.lower().strip()
+    user = db.query(User).filter(User.email == input_email).first()
+    if not user:
+        if "@" in input_email and not input_email.endswith(".in"):
+            user = db.query(User).filter(User.email == f"{input_email}.in").first()
+        elif input_email.endswith(".in"):
+            user = db.query(User).filter(User.email == input_email[:-3]).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

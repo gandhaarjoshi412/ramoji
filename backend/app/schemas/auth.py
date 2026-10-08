@@ -3,7 +3,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr
 from typing import Optional
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 class RefreshRequest(BaseModel):
