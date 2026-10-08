@@ -15,3 +15,6 @@ ultralytics>=8.0.0
 opencv-python-headless>=4.8.0
 onnxruntime>=1.17.0
 openpyxl>=3.1.0
+pypdf>=4.0.0
+xlrd>=2.0.0
+pandas>=2.0.0

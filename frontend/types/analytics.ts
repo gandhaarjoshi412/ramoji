@@ -87,6 +87,11 @@ export interface NormalizedFoodRecord {
   notes?: string;
   data_source: DataSourceType;
   ai_confidence?: number;
+  source_file?: string;
+  source_sheet?: string;
+  source_row?: number;
+  import_id?: string;
+  confidence_score?: number;
   created_at: string;
 }
 

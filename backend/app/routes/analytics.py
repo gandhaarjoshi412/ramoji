@@ -22,8 +22,13 @@ from app.schemas.dashboard import (
 )
 from app.schemas.analytics import EventAnalyticsResponse, EventFoodWasteSummary
 from app.routes.scan import build_scan_response
+import uuid
 from app.utils.security import get_current_user
 from app.services.excel_parser import parse_excel_file, preview_excel_file
+from app.services.intelligent_report_parser import (
+    analyze_report_file,
+    parse_and_normalize_report,
+)
 
 router = APIRouter(tags=["Analytics & Operational Intelligence"])
 
@@ -33,17 +38,25 @@ router = APIRouter(tags=["Analytics & Operational Intelligence"])
 def seed_analytics_if_empty(db: Session):
     count = db.query(AnalyticsRecord).count()
     if count == 0:
-        excel_path = "/home/gandhaar/Downloads/Daily report.xlsx"
-        if os.path.exists(excel_path):
+        candidates = [
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "sample_data", "Daily report.xlsx"),
+            os.path.join(os.path.dirname(__file__), "..", "..", "sample_data", "Daily report.xlsx"),
+            os.path.abspath("sample_data/Daily report.xlsx"),
+            os.path.abspath("backend/sample_data/Daily report.xlsx"),
+            "/home/gandhaar/project/ramoji/backend/sample_data/Daily report.xlsx",
+            "/home/gandhaar/Downloads/Daily report.xlsx",
+        ]
+        excel_path = next((p for p in candidates if os.path.exists(p)), None)
+        if excel_path:
             try:
                 with open(excel_path, "rb") as f:
                     content = f.read()
-                records = parse_excel_file(content, "Daily report.xlsx")
+                records, warnings = parse_and_normalize_report(content, os.path.basename(excel_path))
                 for r in records:
                     rec = AnalyticsRecord(**r)
                     db.add(rec)
                 db.commit()
-                print(f"Successfully seeded {len(records)} AnalyticsRecords from {excel_path}")
+                print(f"Successfully seeded {len(records)} AnalyticsRecords from {excel_path} via IntelligentReportParser")
             except Exception as e:
                 db.rollback()
                 print(f"Failed to seed AnalyticsRecords: {e}")
@@ -733,6 +746,11 @@ def get_analytics_overview(
             "notes": r.notes,
             "data_source": r.data_source,
             "ai_confidence": r.ai_confidence,
+            "source_file": r.source_file,
+            "source_sheet": r.source_sheet,
+            "source_row": r.source_row,
+            "import_id": r.import_id,
+            "confidence_score": r.confidence_score,
             "created_at": str(r.created_at),
         }
         for r in records
@@ -881,31 +899,124 @@ def get_dish_drilldown(
     }
 
 # =========================================================================
-# 3. EXCEL UPLOAD PREVIEW & CONFIRM ENDPOINTS
+# 3. INTELLIGENT REPORT INGESTION, AUDIT & CONFIRM ENDPOINTS
 # =========================================================================
 @router.post("/api/analytics/upload/preview")
+@router.post("/api/analytics/upload/analyze")
 async def preview_upload(
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user)
-):
-    content = await file.read()
-    preview = preview_excel_file(content, file.filename or "upload.xlsx")
-    return preview
-
-@router.post("/api/analytics/upload/confirm")
-async def confirm_upload(
-    file: UploadFile = File(...),
-    sheet_name: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     content = await file.read()
-    parsed_records = parse_excel_file(content, file.filename or "uploaded_report.xlsx")
-    if not parsed_records:
-        raise HTTPException(status_code=400, detail="Could not extract food records from uploaded file")
+    filename = file.filename or "uploaded_report.xlsx"
+    analysis = analyze_report_file(content, filename)
 
+    # Perform database duplicate check
+    potential_duplicate = False
+    dup_reasons = []
+    dup_count = 0
+
+    # 1. Filename match
+    file_matches = db.query(AnalyticsRecord).filter(AnalyticsRecord.source_file == filename).count()
+    if file_matches > 0:
+        potential_duplicate = True
+        dup_count += file_matches
+        dup_reasons.append(f"{file_matches} records from file '{filename}' already exist.")
+
+    # 2. Hotel + Date match from detected sheets
+    for s in analysis.get("sheets", []):
+        h_name = s.get("hotel")
+        d_val = s.get("date")
+        if h_name and d_val:
+            try:
+                d_obj = datetime.strptime(d_val, "%Y-%m-%d").date()
+                hotel_date_matches = db.query(AnalyticsRecord).filter(
+                    AnalyticsRecord.hotel_name == h_name,
+                    AnalyticsRecord.record_date == d_obj
+                ).count()
+                if hotel_date_matches > 0 and hotel_date_matches not in [file_matches]:
+                    potential_duplicate = True
+                    dup_count += hotel_date_matches
+                    dup_reasons.append(f"{hotel_date_matches} existing records for {h_name} on {d_val}.")
+            except Exception:
+                pass
+
+    analysis["is_potential_duplicate"] = potential_duplicate
+    analysis["duplicate_count"] = dup_count
+    analysis["duplicate_reason"] = "; ".join(dup_reasons) if dup_reasons else None
+
+    return analysis
+
+@router.post("/api/analytics/upload/confirm")
+async def confirm_upload(
+    file: UploadFile = File(...),
+    sheet_name: Optional[str] = Form("all"),
+    duplicate_action: Optional[str] = Form("import"),  # "import", "replace", "skip"
+    hotel_override: Optional[str] = Form(None),
+    event_override: Optional[str] = Form(None),
+    date_override: Optional[str] = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    content = await file.read()
+    filename = file.filename or "uploaded_report.xlsx"
+
+    parsed_date = None
+    if date_override and date_override.strip():
+        try:
+            parsed_date = datetime.strptime(date_override.strip(), "%Y-%m-%d").date()
+        except Exception:
+            pass
+
+    records, warnings = parse_and_normalize_report(
+        content=content,
+        filename=filename,
+        sheet_name_filter=sheet_name if sheet_name != "all" else None,
+        hotel_override=hotel_override.strip() if hotel_override and hotel_override.strip() else None,
+        event_override=event_override.strip() if event_override and event_override.strip() else None,
+        date_override=parsed_date,
+    )
+
+    if not records:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not extract valid records from report. Ensure file is a supported spreadsheet (.xlsx, .xls, .csv), PDF, or document."
+        )
+
+    # Handle duplicate actions
+    if duplicate_action == "skip":
+        sample_h = records[0].get("hotel_name")
+        sample_d = records[0].get("record_date")
+        existing_recs = db.query(AnalyticsRecord).filter(
+            AnalyticsRecord.hotel_name == sample_h,
+            AnalyticsRecord.record_date == sample_d
+        ).count()
+        if existing_recs > 0:
+            return {
+                "status": "skipped",
+                "message": f"Import skipped: {existing_recs} records already exist for {sample_h} on {sample_d}.",
+                "inserted_records": 0,
+                "filename": filename,
+            }
+
+    elif duplicate_action == "replace":
+        # Remove existing records matching these hotels and dates
+        unique_targets = {(r.get("hotel_name"), r.get("record_date")) for r in records}
+        deleted_count = 0
+        for h, d in unique_targets:
+            if h and d:
+                del_q = db.query(AnalyticsRecord).filter(
+                    AnalyticsRecord.hotel_name == h,
+                    AnalyticsRecord.record_date == d
+                ).delete(synchronize_session=False)
+                deleted_count += del_q
+        db.flush()
+
+    batch_import_id = str(uuid.uuid4())
     inserted = 0
-    for r in parsed_records:
+    for r in records:
+        r["import_id"] = batch_import_id
         rec = AnalyticsRecord(**r)
         db.add(rec)
         inserted += 1
@@ -913,9 +1024,91 @@ async def confirm_upload(
     db.commit()
     return {
         "status": "success",
+        "import_id": batch_import_id,
         "inserted_records": inserted,
-        "filename": file.filename,
+        "filename": filename,
+        "sheet_name": sheet_name,
+        "warnings": warnings[:5],
     }
+
+@router.get("/api/analytics/records")
+def get_analytics_records_ledger(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=200),
+    hotel: Optional[str] = Query(None),
+    date_str: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    import_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    query = db.query(AnalyticsRecord)
+    if hotel and hotel != "all":
+        query = query.filter(AnalyticsRecord.hotel_name == hotel)
+    if date_str:
+        try:
+            d_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+            query = query.filter(AnalyticsRecord.record_date == d_obj)
+        except Exception:
+            pass
+    if import_id:
+        query = query.filter(AnalyticsRecord.import_id == import_id)
+    if search:
+        s = f"%{search}%"
+        query = query.filter(
+            (AnalyticsRecord.dish_name.ilike(s)) |
+            (AnalyticsRecord.dish_category.ilike(s)) |
+            (AnalyticsRecord.session.ilike(s)) |
+            (AnalyticsRecord.event_name.ilike(s))
+        )
+
+    total = query.count()
+    records = query.order_by(AnalyticsRecord.record_date.desc(), AnalyticsRecord.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size if total > 0 else 1,
+        "records": [
+            {
+                "id": r.id,
+                "date": str(r.record_date),
+                "hotel": r.hotel_name,
+                "session": r.session,
+                "event_name": r.event_name,
+                "dish_name": r.dish_name,
+                "dish_category": r.dish_category,
+                "pax": r.pax,
+                "actual_production_kg": r.actual_production_kg,
+                "actual_consumption_kg": r.actual_consumption_kg,
+                "total_leftover_kg": r.total_leftover_kg,
+                "reuse_quantity_kg": r.reuse_quantity_kg,
+                "total_waste_kg": r.total_waste_kg,
+                "waste_cost": r.waste_cost,
+                "waste_percentage": r.waste_percentage,
+                "data_source": r.data_source,
+                "source_file": r.source_file,
+                "source_sheet": r.source_sheet,
+                "source_row": r.source_row,
+                "import_id": r.import_id,
+                "confidence_score": r.confidence_score,
+            }
+            for r in records
+        ]
+    }
+
+@router.delete("/api/analytics/imports/{import_id}", status_code=status.HTTP_200_OK)
+def rollback_import(
+    import_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin permissions required to rollback imports.")
+    del_count = db.query(AnalyticsRecord).filter(AnalyticsRecord.import_id == import_id).delete(synchronize_session=False)
+    db.commit()
+    return {"status": "success", "deleted_records": del_count, "import_id": import_id}
 
 # =========================================================================
 # 4. PRESERVED ORIGINAL DASHBOARD ENDPOINTS FOR COMPLETE BACKWARDS COMPATIBILITY
