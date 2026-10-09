@@ -116,6 +116,7 @@ export interface MetricComparison {
   delta: number;
   percentage_change: number; // e.g. -8.4%
   is_positive_improvement: boolean; // For waste, a reduction is positive!
+  has_baseline?: boolean;
 }
 
 export interface ExecutiveKpis {

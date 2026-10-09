@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
 from typing import List, Optional
 from datetime import date
 
 from app.database import get_db
 from app.models.user import User
 from app.models.event import Event
+from app.models.event_category import EventCategory
 from app.models.event_food import EventFood
 from app.models.waste_record import WasteRecord
 from app.models.waste_scan import WasteScan
@@ -15,6 +17,8 @@ from app.schemas.event import (
     EventUpdate,
     EventListItemResponse,
     EventDetailResponse,
+    EventCategoryCreate,
+    EventCategoryResponse,
 )
 from app.schemas.event_food import EventFoodResponse
 from app.schemas.waste_record import WasteRecordResponse
@@ -28,6 +32,29 @@ from app.services.event_sync import sync_event_scans_to_event_foods
 from app.utils.security import get_current_user
 
 router = APIRouter(prefix="/api/events", tags=["Events"])
+
+BUILTIN_CATEGORIES = [
+    {"name": "Corporate", "code": "corporate", "description": "Corporate events, seminars, and business luncheons"},
+    {"name": "Birthday", "code": "birthday", "description": "Birthday parties, anniversaries, and family milestones"},
+    {"name": "Wedding", "code": "wedding", "description": "Weddings, receptions, and sangeet banquets"},
+    {"name": "Regular Hotel Service", "code": "regular_service", "description": "Daily restaurant, buffet, and hotel dining shifts"},
+    {"name": "Conference", "code": "conference", "description": "Large conferences, trade shows, and conventions"},
+    {"name": "Social", "code": "social", "description": "Community gatherings and social celebrations"},
+    {"name": "Other", "code": "other", "description": "General or uncategorized banquet events"},
+]
+
+def ensure_default_categories(db: Session):
+    for cat_data in BUILTIN_CATEGORIES:
+        exists = db.query(EventCategory).filter(func.lower(EventCategory.name) == cat_data["name"].lower()).first()
+        if not exists:
+            db.add(EventCategory(
+                name=cat_data["name"],
+                code=cat_data["code"],
+                description=cat_data["description"],
+                is_builtin=True,
+                hotel_id=None
+            ))
+    db.commit()
 
 def build_event_list_item(event: Event) -> EventListItemResponse:
     # Scale records waste
@@ -181,10 +208,73 @@ def build_event_detail(event: Event) -> EventDetailResponse:
         event_foods=event_foods_response,
     )
 
+@router.get("/categories", response_model=List[EventCategoryResponse])
+def get_event_categories(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    ensure_default_categories(db)
+    query = db.query(EventCategory).filter(
+        (EventCategory.is_builtin == True) |
+        (EventCategory.hotel_id == current_user.hotel_id) |
+        (EventCategory.hotel_id.is_(None))
+    )
+    return query.order_by(EventCategory.is_builtin.desc(), EventCategory.name.asc()).all()
+
+@router.post("/categories", response_model=EventCategoryResponse, status_code=status.HTTP_201_CREATED)
+def create_event_category(
+    payload: EventCategoryCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    cat_name = payload.name.strip()
+    if not cat_name:
+        raise HTTPException(status_code=400, detail="Category name cannot be empty.")
+
+    # Check duplicate
+    existing = db.query(EventCategory).filter(
+        func.lower(EventCategory.name) == cat_name.lower(),
+        (EventCategory.hotel_id == current_user.hotel_id) | (EventCategory.hotel_id.is_(None))
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Category '{cat_name}' already exists.")
+
+    new_cat = EventCategory(
+        name=cat_name,
+        code=payload.code.strip() if payload.code else cat_name.lower().replace(" ", "_"),
+        description=payload.description.strip() if payload.description else None,
+        is_builtin=False,
+        hotel_id=current_user.hotel_id,
+    )
+    db.add(new_cat)
+    db.commit()
+    db.refresh(new_cat)
+    return new_cat
+
+@router.delete("/categories/{id}", status_code=status.HTTP_200_OK)
+def delete_event_category(
+    id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    cat = db.query(EventCategory).filter(EventCategory.id == id).first()
+    if not cat:
+        raise HTTPException(status_code=404, detail="Category not found.")
+    if cat.is_builtin:
+        raise HTTPException(status_code=400, detail="Built-in categories cannot be deleted.")
+    if current_user.role != "admin" and cat.hotel_id != current_user.hotel_id:
+        raise HTTPException(status_code=403, detail="Permission denied.")
+
+    db.delete(cat)
+    db.commit()
+    return {"status": "success", "message": f"Category '{cat.name}' deleted."}
+
 @router.get("", response_model=List[EventListItemResponse])
 def get_events(
     status: Optional[str] = None,
     event_type: Optional[str] = None,
+    hotel_id: Optional[int] = None,
+    hotel: Optional[str] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
     search: Optional[str] = None,
@@ -193,13 +283,22 @@ def get_events(
 ):
     query = (
         db.query(Event)
-        .filter(Event.hotel_id == current_user.hotel_id)
         .options(
             joinedload(Event.event_foods)
             .joinedload(EventFood.waste_records),
             joinedload(Event.waste_scans),
         )
     )
+
+    if hotel_id and hotel_id > 0:
+        query = query.filter(Event.hotel_id == hotel_id)
+    elif hotel and hotel != "all":
+        from app.models.hotel import Hotel
+        h_match = db.query(Hotel).filter(Hotel.name == hotel).first()
+        if h_match:
+            query = query.filter(Event.hotel_id == h_match.id)
+    elif current_user.role != "admin":
+        query = query.filter(Event.hotel_id == current_user.hotel_id)
 
     if status and status != "all":
         query = query.filter(Event.status == status)
@@ -258,10 +357,12 @@ def get_event(
     # Only recalculate metrics for existing menu items, never resurrect deleted items
     sync_event_scans_to_event_foods(db, event_id, create_missing=False)
 
+    event_query = db.query(Event).filter(Event.id == event_id)
+    if current_user.role != "admin":
+        event_query = event_query.filter(Event.hotel_id == current_user.hotel_id)
+
     event = (
-        db.query(Event)
-        .filter(Event.id == event_id, Event.hotel_id == current_user.hotel_id)
-        .options(
+        event_query.options(
             joinedload(Event.event_foods)
             .joinedload(EventFood.food_item),
             joinedload(Event.event_foods)
@@ -282,7 +383,10 @@ def update_event(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    event = db.query(Event).filter(Event.id == event_id, Event.hotel_id == current_user.hotel_id).first()
+    event_query = db.query(Event).filter(Event.id == event_id)
+    if current_user.role != "admin":
+        event_query = event_query.filter(Event.hotel_id == current_user.hotel_id)
+    event = event_query.first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
@@ -313,7 +417,10 @@ def delete_event(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    event = db.query(Event).filter(Event.id == event_id, Event.hotel_id == current_user.hotel_id).first()
+    event_query = db.query(Event).filter(Event.id == event_id)
+    if current_user.role != "admin":
+        event_query = event_query.filter(Event.hotel_id == current_user.hotel_id)
+    event = event_query.first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 

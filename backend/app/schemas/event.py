@@ -45,3 +45,19 @@ class EventListItemResponse(EventBase):
 
 class EventDetailResponse(EventListItemResponse):
     event_foods: List[EventFoodResponse] = []
+
+class EventCategoryCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    code: Optional[str] = Field(None, max_length=50)
+    description: Optional[str] = Field(None, max_length=255)
+
+class EventCategoryResponse(BaseModel):
+    id: int
+    name: str
+    code: Optional[str] = None
+    description: Optional[str] = None
+    is_builtin: bool = False
+    hotel_id: Optional[int] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

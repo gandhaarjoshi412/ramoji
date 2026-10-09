@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import {
   Calendar,
   Building2,
@@ -15,8 +15,12 @@ import {
   Layers,
   FileSpreadsheet,
   Tag,
+  Plus,
+  X,
+  Loader2,
 } from "lucide-react";
 import { AnalyticsFilterParams, ServiceType, SessionType } from "@/types/analytics";
+import { apiRequest } from "@/lib/api";
 
 interface GlobalFilterBarProps {
   filters: AnalyticsFilterParams;
@@ -30,6 +34,8 @@ interface GlobalFilterBarProps {
   serviceTypeOptions: string[];
   categoryOptions: string[];
   eventOptions: { id: string | number; name: string }[];
+  eventCategoryOptions?: string[];
+  onCategoryCreated?: (catName: string) => void;
   isLoading?: boolean;
 }
 
@@ -56,8 +62,53 @@ export const GlobalFilterBar: React.FC<GlobalFilterBarProps> = ({
   serviceTypeOptions,
   categoryOptions,
   eventOptions,
+  eventCategoryOptions = [],
+  onCategoryCreated,
   isLoading,
 }) => {
+  const [newCategoryModalOpen, setNewCategoryModalOpen] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatDesc, setNewCatDesc] = useState("");
+  const [catLoading, setCatLoading] = useState(false);
+  const [catError, setCatError] = useState<string | null>(null);
+
+  const handleCreateCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = newCatName.trim();
+    if (!trimmed) {
+      setCatError("Please enter a category name.");
+      return;
+    }
+    setCatLoading(true);
+    setCatError(null);
+    try {
+      await apiRequest("/api/events/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: trimmed,
+          description: newCatDesc.trim() || undefined,
+        }),
+      });
+      setNewCatName("");
+      setNewCatDesc("");
+      setNewCategoryModalOpen(false);
+      onChange({ event_type: trimmed });
+      onCategoryCreated?.(trimmed);
+    } catch (err: any) {
+      setCatError(err.message || "Failed to create category");
+    } finally {
+      setCatLoading(false);
+    }
+  };
+
+  const handleHotelChange = (newHotel: string) => {
+    // If the hotel changed, clear event selection to avoid cross-hotel mismatch
+    onChange({
+      hotel: newHotel,
+      event_id: "all",
+    });
+  };
   return (
     <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs space-y-4 no-print">
       {/* Top Action Bar */}
@@ -153,7 +204,7 @@ export const GlobalFilterBar: React.FC<GlobalFilterBarProps> = ({
       )}
 
       {/* Multi-Dimensional Filter Dropdowns */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 text-xs">
         {/* Hotel / Property */}
         <div>
           <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
@@ -162,7 +213,7 @@ export const GlobalFilterBar: React.FC<GlobalFilterBarProps> = ({
           <div className="relative">
             <select
               value={filters.hotel}
-              onChange={(e) => onChange({ hotel: e.target.value })}
+              onChange={(e) => handleHotelChange(e.target.value)}
               className="w-full appearance-none px-3 py-2 bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-xl text-slate-800 font-semibold pr-8 focus:outline-emerald-500 cursor-pointer"
             >
               <option value="all">All Hotels & Properties</option>
@@ -242,6 +293,38 @@ export const GlobalFilterBar: React.FC<GlobalFilterBarProps> = ({
           </div>
         </div>
 
+        {/* Event Category */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Event Category
+            </label>
+            <button
+              type="button"
+              onClick={() => setNewCategoryModalOpen(true)}
+              className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 hover:underline cursor-pointer flex items-center gap-0.5"
+              title="Create a new custom event category in database"
+            >
+              <Plus className="w-2.5 h-2.5" /> New
+            </button>
+          </div>
+          <div className="relative">
+            <select
+              value={filters.event_type || "all"}
+              onChange={(e) => onChange({ event_type: e.target.value })}
+              className="w-full appearance-none px-3 py-2 bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-xl text-slate-800 font-semibold pr-8 focus:outline-emerald-500 cursor-pointer"
+            >
+              <option value="all">All Categories</option>
+              {eventCategoryOptions.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          </div>
+        </div>
+
         {/* Dish Category */}
         <div>
           <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
@@ -285,6 +368,81 @@ export const GlobalFilterBar: React.FC<GlobalFilterBarProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Modal for Creating Custom Event Category */}
+      {newCategoryModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Tag className="w-4 h-4 text-emerald-600" />
+                <h3 className="text-sm font-bold text-slate-900">Create Event Category</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNewCategoryModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCategory} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Category Name <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. VIP Gala Dinner, Alumni Reunion"
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-emerald-500 font-medium"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Description <span className="text-slate-400 font-normal">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Brief operational context for this event type"
+                  value={newCatDesc}
+                  onChange={(e) => setNewCatDesc(e.target.value)}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-emerald-500 font-medium"
+                />
+              </div>
+
+              {catError && (
+                <p className="text-xs text-rose-600 bg-rose-50 p-2 rounded-lg font-medium">
+                  {catError}
+                </p>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setNewCategoryModalOpen(false)}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                  disabled={catLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={catLoading || !newCatName.trim()}
+                  className="px-4 py-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50 rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  {catLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                  Save Category
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

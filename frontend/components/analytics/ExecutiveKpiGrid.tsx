@@ -62,10 +62,10 @@ const ComparisonBadge: React.FC<{
   comp: MetricComparison;
   invertColor?: boolean; // For waste, a negative delta is GOOD (green)
 }> = ({ comp, invertColor = false }) => {
-  if (comp.previous === 0 && comp.current === 0) {
+  if (comp.has_baseline === false || (comp.previous === 0 && comp.current === 0)) {
     return (
       <span className="text-[10px] font-semibold text-slate-400 inline-flex items-center gap-0.5">
-        <Minus className="w-3 h-3" /> No prior data
+        <Minus className="w-3 h-3" /> No prior baseline
       </span>
     );
   }
@@ -74,7 +74,7 @@ const ComparisonBadge: React.FC<{
   if (isZero) {
     return (
       <span className="text-[10px] font-semibold text-slate-400 inline-flex items-center gap-0.5">
-        <Minus className="w-3 h-3" /> Flat vs prior period
+        <Minus className="w-3 h-3" /> Flat vs baseline
       </span>
     );
   }
@@ -96,7 +96,7 @@ const ComparisonBadge: React.FC<{
       ) : (
         <TrendingDown className="w-3 h-3" />
       )}
-      {Math.abs(comp.percentage_change).toFixed(1)}% vs prior
+      {Math.abs(comp.percentage_change).toFixed(1)}% vs baseline
     </span>
   );
 };

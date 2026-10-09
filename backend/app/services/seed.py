@@ -59,6 +59,7 @@ def seed_database(db: Session) -> None:
                 t_user.failed_login_attempts = 0
                 t_user.locked_until = None
         db.commit()
+        reconcile_hotels_and_events(db)
         return
 
     print("Seeding database with Dolphin Hotels, staff, ingredients, recipes, and AI waste scans...")
@@ -244,5 +245,78 @@ def seed_database(db: Session) -> None:
 
     from ai.food_classes import sync_food_catalog_for_hotel
     sync_food_catalog_for_hotel(db, hotel.id)
+    reconcile_hotels_and_events(db)
     db.commit()
     print("Database seeding completed successfully with master catalog recipes and AI food classes.")
+
+def reconcile_hotels_and_events(db: Session) -> None:
+    from app.models.analytics_record import AnalyticsRecord
+    from app.routes.events import ensure_default_categories
+    ensure_default_categories(db)
+
+    # 1. Ensure Hotel Sahara and Hotel Sitara exist
+    hotel_names = ["Hotel Sahara", "Hotel Sitara"]
+    hotel_map = {}
+    for hname in hotel_names:
+        h = db.query(Hotel).filter(Hotel.name == hname).first()
+        if not h:
+            h = Hotel(name=hname, address=f"{hname}, Ramoji Film City, Hyderabad")
+            db.add(h)
+            db.flush()
+        hotel_map[hname] = h
+
+    # 2. Reconcile hotel_id on AnalyticsRecord
+    for hname, h in hotel_map.items():
+        db.query(AnalyticsRecord).filter(
+            AnalyticsRecord.hotel_name == hname,
+            (AnalyticsRecord.hotel_id.is_(None)) | (AnalyticsRecord.hotel_id != h.id)
+        ).update({"hotel_id": h.id}, synchronize_session=False)
+
+    # 3. Reconcile events from analytics_records
+    records = db.query(
+        AnalyticsRecord.hotel_name,
+        AnalyticsRecord.hotel_id,
+        AnalyticsRecord.event_name,
+        AnalyticsRecord.event_type,
+        AnalyticsRecord.record_date,
+        AnalyticsRecord.pax
+    ).distinct().all()
+
+    for r in records:
+        if not r.event_name:
+            continue
+        h_id = r.hotel_id
+        if not h_id and r.hotel_name in hotel_map:
+            h_id = hotel_map[r.hotel_name].id
+        if not h_id:
+            first_h = db.query(Hotel).first()
+            h_id = first_h.id if first_h else 1
+
+        ev = db.query(Event).filter(
+            Event.hotel_id == h_id,
+            Event.name == r.event_name,
+            Event.event_date == r.record_date
+        ).first()
+
+        if not ev:
+            ev = Event(
+                hotel_id=h_id,
+                name=r.event_name,
+                event_type=r.event_type or "Regular Hotel Service",
+                venue="Main Dining / Banquet Hall",
+                event_date=r.record_date,
+                expected_guests=r.pax or 0,
+                actual_guests=r.pax or 0,
+                status="Completed",
+                notes="Reconciled from banquet analytics records"
+            )
+            db.add(ev)
+            db.flush()
+
+        db.query(AnalyticsRecord).filter(
+            AnalyticsRecord.event_name == r.event_name,
+            AnalyticsRecord.record_date == r.record_date,
+            (AnalyticsRecord.event_id.is_(None)) | (AnalyticsRecord.event_id != ev.id)
+        ).update({"event_id": ev.id, "hotel_id": h_id}, synchronize_session=False)
+
+    db.commit()

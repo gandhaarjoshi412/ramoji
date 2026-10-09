@@ -9,6 +9,7 @@ from app.models.recipe import Recipe
 from app.models.recipe_ingredient import RecipeIngredient
 from app.models.waste_scan import WasteScan
 from app.models.analytics_record import AnalyticsRecord
+from app.models.event_category import EventCategory
 
 __all__ = [
     "Hotel",
@@ -16,6 +17,7 @@ __all__ = [
     "UserSession",
     "FoodItem",
     "Event",
+    "EventCategory",
     "EventFood",
     "WasteRecord",
     "Ingredient",

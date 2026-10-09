@@ -50,6 +50,7 @@ const DEFAULT_FILTERS: AnalyticsFilterParams = {
   service_type: "all",
   session: "all",
   event_id: "all",
+  event_type: "all",
   dish_category: "all",
   data_source: "all",
 };
@@ -62,6 +63,7 @@ export default function AnalyticsPage() {
   const [data, setData] = useState<AnalyticsOverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const reqIdRef = React.useRef(0);
 
   // Modals state
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
@@ -76,8 +78,9 @@ export default function AnalyticsPage() {
     fetchAnalytics();
   };
 
-  // Fetch overview data
+  // Fetch overview data with race condition protection
   const fetchAnalytics = useCallback(async () => {
+    const currentReqId = ++reqIdRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -89,17 +92,24 @@ export default function AnalyticsPage() {
       if (filters.service_type && filters.service_type !== "all") query.set("service_type", filters.service_type);
       if (filters.session && filters.session !== "all") query.set("session", filters.session);
       if (filters.event_id && filters.event_id !== "all") query.set("event_id", filters.event_id);
+      if (filters.event_type && filters.event_type !== "all") query.set("event_type", filters.event_type);
       if (filters.dish_category && filters.dish_category !== "all") query.set("dish_category", filters.dish_category);
       if (filters.data_source && filters.data_source !== "all") query.set("data_source", filters.data_source);
 
       const res = await apiRequest<AnalyticsOverviewResponse>(
         `/api/analytics/overview?${query.toString()}`
       );
-      setData(res);
+      if (reqIdRef.current === currentReqId) {
+        setData(res);
+      }
     } catch (err: any) {
-      setError(err.message || "Failed to load hospitality analytics");
+      if (reqIdRef.current === currentReqId) {
+        setError(err.message || "Failed to load hospitality analytics");
+      }
     } finally {
-      setLoading(false);
+      if (reqIdRef.current === currentReqId) {
+        setLoading(false);
+      }
     }
   }, [filters]);
 
@@ -381,6 +391,8 @@ export default function AnalyticsPage() {
         serviceTypeOptions={data?.filter_options?.service_types || []}
         categoryOptions={data?.filter_options?.categories || []}
         eventOptions={data?.filter_options?.events || []}
+        eventCategoryOptions={data?.filter_options?.event_types || []}
+        onCategoryCreated={() => fetchAnalytics()}
         isLoading={loading}
       />
 

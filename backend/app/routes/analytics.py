@@ -4,15 +4,18 @@ from datetime import datetime, date, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, status
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, distinct
+from sqlalchemy import func, distinct, or_
 
 from app.database import get_db, SessionLocal, engine
 from app.models.user import User
 from app.models.event import Event
 from app.models.event_food import EventFood
+from app.models.event_category import EventCategory
 from app.models.waste_scan import WasteScan
 from app.models.hotel import Hotel
 from app.models.analytics_record import AnalyticsRecord
+from app.services.calculation_engine import calculate_core_waste_metrics, build_comparison_payload
+from app.services.intelligence_engine import generate_operational_intelligence
 
 from app.schemas.dashboard import (
     DashboardSummaryResponse,
@@ -73,6 +76,7 @@ def get_analytics_overview(
     service_type: Optional[str] = Query("all"),
     session: Optional[str] = Query("all"),
     event_id: Optional[str] = Query("all"),
+    event_type: Optional[str] = Query("all"),
     dish_category: Optional[str] = Query("all"),
     data_source: Optional[str] = Query("all"),
     current_user: User = Depends(get_current_user),
@@ -101,9 +105,26 @@ def get_analytics_overview(
     if data_source and data_source != "all":
         query = query.filter(AnalyticsRecord.data_source == data_source)
 
-    # Event filter
+    # Event category / type filter
+    if event_type and event_type != "all":
+        query = query.filter(AnalyticsRecord.event_type == event_type)
+
+    # Event filter (handles both event_id integer and event_name string)
     if event_id and event_id != "all":
-        query = query.filter(AnalyticsRecord.event_name.ilike(f"%{event_id}%"))
+        if event_id.isdigit():
+            query = query.filter(
+                or_(
+                    AnalyticsRecord.event_id == int(event_id),
+                    AnalyticsRecord.event_name == event_id
+                )
+            )
+        else:
+            query = query.filter(
+                or_(
+                    AnalyticsRecord.event_name == event_id,
+                    AnalyticsRecord.event_name.ilike(f"%{event_id}%")
+                )
+            )
 
     # Date filters
     today = date.today()
@@ -132,17 +153,46 @@ def get_analytics_overview(
             pass
 
     records: List[AnalyticsRecord] = query.order_by(AnalyticsRecord.record_date.desc(), AnalyticsRecord.session.asc()).all()
+    dates_present = sorted(list(set(str(r.record_date) for r in records)))
 
     # Calculate Filter Context & Available Filter Options
     all_hotels = [h[0] for h in db.query(distinct(AnalyticsRecord.hotel_name)).all() if h[0]]
     all_sessions = [s[0] for s in db.query(distinct(AnalyticsRecord.session)).all() if s[0]]
     all_service_types = [st[0] for st in db.query(distinct(AnalyticsRecord.service_type)).all() if st[0]]
     all_categories = [c[0] for c in db.query(distinct(AnalyticsRecord.dish_category)).all() if c[0]]
-    all_events_raw = db.query(distinct(AnalyticsRecord.event_name)).all()
-    all_events = [{"id": e[0], "name": e[0]} for e in all_events_raw if e[0]]
+
+    # Scope available events to the selected hotel (Filter dependency rule)
+    event_query = db.query(distinct(AnalyticsRecord.event_name), AnalyticsRecord.event_id)
+    if hotel and hotel != "all":
+        event_query = event_query.filter(AnalyticsRecord.hotel_name == hotel)
+    all_events_raw = event_query.all()
+    seen_event_names = set()
+    all_events = []
+    for e in all_events_raw:
+        if e[0] and e[0] not in seen_event_names:
+            seen_event_names.add(e[0])
+            all_events.append({"id": str(e[1]) if e[1] else e[0], "name": e[0]})
+
+    if hotel and hotel != "all":
+        h_record = db.query(Hotel).filter(Hotel.name == hotel).first()
+        if h_record:
+            db_evs = db.query(Event).filter(Event.hotel_id == h_record.id).all()
+            for dbe in db_evs:
+                if dbe.name not in seen_event_names:
+                    seen_event_names.add(dbe.name)
+                    all_events.append({"id": str(dbe.id), "name": dbe.name})
+
+    # Retrieve all distinct event categories (persisted in EventCategory and from records)
+    cat_records = db.query(EventCategory.name).all()
+    rec_cats = db.query(distinct(AnalyticsRecord.event_type)).all()
+    default_cats = ["Corporate", "Birthday", "Wedding", "Regular Hotel Service", "Conference", "Social", "Other"]
+    all_event_types = sorted(list(set(
+        [c[0] for c in cat_records if c[0]] +
+        [c[0] for c in rec_cats if c[0]] +
+        default_cats
+    )))
 
     # Determine unique session covers for pax calculation
-    # Group by (record_date, hotel_name, session, event_name) to extract unique pax
     unique_shifts = {}
     for r in records:
         shift_key = (str(r.record_date), r.hotel_name, r.session, r.event_name)
@@ -151,75 +201,70 @@ def get_analytics_overview(
 
     total_pax = sum(unique_shifts.values()) if unique_shifts else sum(r.pax for r in records)
 
-    # Core Aggregations
-    total_prepared_kg = sum(r.actual_production_kg for r in records)
-    total_consumed_kg = sum(r.actual_consumption_kg for r in records)
-    total_waste_kg = sum(r.total_waste_kg for r in records)
-    total_waste_cost = sum(r.waste_cost for r in records)
-    total_kitchen_leftover_kg = sum(r.kitchen_leftover_kg for r in records)
-    total_buffet_leftover_kg = sum(r.location_buffet_return_kg for r in records)
-    total_leftover_kg = sum(r.total_leftover_kg for r in records)
-    total_reuse_kg = sum(r.reuse_quantity_kg for r in records)
-    total_estimated_kg = sum(r.estimated_production_kg for r in records)
+    # Core Aggregations using centralized calculation engine
+    core_metrics = calculate_core_waste_metrics(records, pax_override=total_pax)
+    total_prepared_kg = core_metrics["total_prepared_kg"]
+    total_consumed_kg = core_metrics["total_consumed_kg"]
+    total_waste_kg = core_metrics["total_waste_kg"]
+    total_waste_cost = core_metrics["total_waste_cost"]
+    total_kitchen_leftover_kg = core_metrics["total_kitchen_leftover_kg"]
+    total_buffet_leftover_kg = core_metrics["total_buffet_leftover_kg"]
+    total_leftover_kg = core_metrics["total_leftover_kg"]
+    total_reuse_kg = core_metrics["total_reuse_kg"]
+    total_estimated_kg = core_metrics["total_estimated_kg"]
 
-    waste_rate_pct = (total_waste_kg / total_prepared_kg * 100.0) if total_prepared_kg > 0 else 0.0
-    consumption_rate_pct = (total_consumed_kg / total_prepared_kg * 100.0) if total_prepared_kg > 0 else 0.0
-    reuse_rate_pct = (total_reuse_kg / total_leftover_kg * 100.0) if total_leftover_kg > 0 else 0.0
+    waste_rate_pct = core_metrics["waste_rate_pct"]
+    consumption_rate_pct = core_metrics["consumption_rate_pct"]
+    reuse_rate_pct = core_metrics["reuse_rate_pct"]
 
-    waste_per_guest_g = (total_waste_kg / total_pax * 1000.0) if total_pax > 0 else 0.0
-    consumed_per_guest_g = (total_consumed_kg / total_pax * 1000.0) if total_pax > 0 else 0.0
-    prepared_per_guest_g = (total_prepared_kg / total_pax * 1000.0) if total_pax > 0 else 0.0
-    waste_cost_per_guest = (total_waste_cost / total_pax) if total_pax > 0 else 0.0
+    waste_per_guest_g = core_metrics["waste_per_guest_g"]
+    consumed_per_guest_g = core_metrics["consumed_per_guest_g"]
+    prepared_per_guest_g = core_metrics["prepared_per_guest_g"]
+    waste_cost_per_guest = core_metrics["waste_cost_per_guest"]
 
-    prod_variance_kg = total_prepared_kg - total_estimated_kg
-    prod_variance_pct = (prod_variance_kg / total_estimated_kg * 100.0) if total_estimated_kg > 0 else 0.0
+    prod_variance_kg = core_metrics["production_variance_kg"]
+    prod_variance_pct = core_metrics["production_variance_pct"]
 
-    # Benchmark prior period comparisons (use real shift comparison)
-    # E.g. Sahara 222.88 kg vs Sitara 23.0 kg, or calculate based on first half vs second half
-    prev_ratio = 1.084 # Reflects 8.4% improvement trend
-    prev_waste_kg = round(total_waste_kg * prev_ratio, 2)
-    prev_waste_pct = round(waste_rate_pct * 1.084, 2)
-    prev_cost = round(total_waste_cost * prev_ratio, 2)
-    prev_prep = round(total_prepared_kg * 0.98, 2)
-    prev_cons = round(total_consumed_kg * 0.98, 2)
-    prev_pax = int(total_pax * 0.95)
+    # Generate transparent operational intelligence and empirical baseline comparison
+    intel_filter_context = {
+        "hotel_name": hotel if hotel != "all" else "All Hotels (Consolidated)",
+        "event_type": event_type if event_type != "all" else None,
+        "dish_category": dish_category if dish_category != "all" else None,
+        "date_display": f"{dates_present[0]} to {dates_present[-1]}" if len(dates_present) > 1 else (dates_present[0] if dates_present else "All Available Dates"),
+    }
+    intel_result = generate_operational_intelligence(
+        records=records,
+        filter_context=intel_filter_context,
+        db=db,
+    )
+    base = intel_result.get("baseline_metrics") if intel_result.get("has_baseline") else None
 
-    def make_comp(curr, prev, is_waste=False):
-        delta = curr - prev
-        pct = ((curr - prev) / prev * 100.0) if prev > 0 else 0.0
-        return {
-            "current": round(curr, 2),
-            "previous": round(prev, 2),
-            "delta": round(delta, 2),
-            "percentage_change": round(pct, 1),
-            "is_positive_improvement": (delta <= 0) if is_waste else (delta >= 0),
-        }
-
+    # Construct empirical comparison KPIs (no fake multipliers)
     kpis = {
-        "total_food_prepared_kg": make_comp(total_prepared_kg, prev_prep),
-        "food_prepared_per_guest_g": make_comp(prepared_per_guest_g, prepared_per_guest_g * 0.98),
-        "total_food_consumed_kg": make_comp(total_consumed_kg, prev_cons),
-        "consumption_rate_pct": make_comp(consumption_rate_pct, consumption_rate_pct * 0.98),
-        "consumption_per_guest_g": make_comp(consumed_per_guest_g, consumed_per_guest_g * 0.98),
-        "total_food_waste_kg": make_comp(total_waste_kg, prev_waste_kg, is_waste=True),
-        "waste_rate_pct": make_comp(waste_rate_pct, prev_waste_pct, is_waste=True),
-        "waste_per_guest_g": make_comp(waste_per_guest_g, waste_per_guest_g * 1.084, is_waste=True),
-        "total_leftover_kg": make_comp(total_leftover_kg, total_leftover_kg * 1.05, is_waste=True),
-        "kitchen_leftover_kg": make_comp(total_kitchen_leftover_kg, total_kitchen_leftover_kg * 1.05, is_waste=True),
-        "buffet_leftover_kg": make_comp(total_buffet_leftover_kg, total_buffet_leftover_kg * 1.05, is_waste=True),
-        "food_reused_kg": make_comp(total_reuse_kg, total_reuse_kg * 0.9),
-        "reuse_rate_pct": make_comp(reuse_rate_pct, reuse_rate_pct * 0.9),
-        "food_diverted_kg": make_comp(total_reuse_kg, total_reuse_kg * 0.9),
-        "total_waste_cost": make_comp(total_waste_cost, prev_cost, is_waste=True),
-        "waste_cost_per_guest": make_comp(waste_cost_per_guest, waste_cost_per_guest * 1.084, is_waste=True),
-        "waste_cost_pct_of_prepared": make_comp(
+        "total_food_prepared_kg": build_comparison_payload(total_prepared_kg, base["total_prepared_kg"] if base else None),
+        "food_prepared_per_guest_g": build_comparison_payload(prepared_per_guest_g, base["prepared_per_guest_g"] if base else None),
+        "total_food_consumed_kg": build_comparison_payload(total_consumed_kg, base["total_consumed_kg"] if base else None),
+        "consumption_rate_pct": build_comparison_payload(consumption_rate_pct, base["consumption_rate_pct"] if base else None),
+        "consumption_per_guest_g": build_comparison_payload(consumed_per_guest_g, base["consumed_per_guest_g"] if base else None),
+        "total_food_waste_kg": build_comparison_payload(total_waste_kg, base["total_waste_kg"] if base else None, is_waste_metric=True),
+        "waste_rate_pct": build_comparison_payload(waste_rate_pct, base["waste_rate_pct"] if base else None, is_waste_metric=True),
+        "waste_per_guest_g": build_comparison_payload(waste_per_guest_g, base["waste_per_guest_g"] if base else None, is_waste_metric=True),
+        "total_leftover_kg": build_comparison_payload(total_leftover_kg, base["total_leftover_kg"] if base else None, is_waste_metric=True),
+        "kitchen_leftover_kg": build_comparison_payload(total_kitchen_leftover_kg, base["total_kitchen_leftover_kg"] if base else None, is_waste_metric=True),
+        "buffet_leftover_kg": build_comparison_payload(total_buffet_leftover_kg, base["total_buffet_leftover_kg"] if base else None, is_waste_metric=True),
+        "food_reused_kg": build_comparison_payload(total_reuse_kg, base["total_reuse_kg"] if base else None),
+        "reuse_rate_pct": build_comparison_payload(reuse_rate_pct, base["reuse_rate_pct"] if base else None),
+        "food_diverted_kg": build_comparison_payload(total_reuse_kg, base["total_reuse_kg"] if base else None),
+        "total_waste_cost": build_comparison_payload(total_waste_cost, base["total_waste_cost"] if base else None, is_waste_metric=True),
+        "waste_cost_per_guest": build_comparison_payload(waste_cost_per_guest, base["waste_cost_per_guest"] if base else None, is_waste_metric=True),
+        "waste_cost_pct_of_prepared": build_comparison_payload(
             (total_waste_cost / (total_prepared_kg * 150) * 100) if total_prepared_kg > 0 else 0,
-            2.5,
-            is_waste=True
+            (base["total_waste_cost"] / (base["total_prepared_kg"] * 150) * 100) if (base and base["total_prepared_kg"] > 0) else None,
+            is_waste_metric=True
         ),
-        "production_variance_kg": make_comp(prod_variance_kg, prod_variance_kg * 1.1),
-        "production_variance_pct": make_comp(prod_variance_pct, prod_variance_pct * 1.1),
-        "total_guests": make_comp(total_pax, prev_pax),
+        "production_variance_kg": build_comparison_payload(prod_variance_kg, base["production_variance_kg"] if base else None),
+        "production_variance_pct": build_comparison_payload(prod_variance_pct, base["production_variance_pct"] if base else None),
+        "total_guests": build_comparison_payload(total_pax, base["total_pax"] if base else None),
     }
 
     # Food Flow Data
@@ -609,13 +654,13 @@ def get_analytics_overview(
         ]
     }
 
-    # AI / Management Insights
-    insights = []
-    if worst_sess_name:
+    # AI / Operational Intelligence Insights - strictly grounded in operational records & baseline
+    insights = list(intel_result.get("insights", []))
+    if worst_sess_name and not any(i.get("category") == "Shift Performance" for i in insights):
         worst_s_data = next((s for s in session_comparison if s["session"] == worst_sess_name), None)
         if worst_s_data:
             insights.append({
-                "id": "ins-1",
+                "id": "ins-shift-peak",
                 "priority": "Critical" if worst_s_data["waste_percentage"] > 8 else "Attention",
                 "category": "Shift Performance",
                 "title": f"{worst_sess_name} Shift Waste Peak Detected",
@@ -624,48 +669,11 @@ def get_analytics_overview(
                 "recommendation": f"Stage replenishment batches during {worst_sess_name} in 30-minute intervals rather than opening full buffet pans upfront.",
             })
 
-    if top_wasted_dishes:
-        top_d = top_wasted_dishes[0]
-        insights.append({
-            "id": "ins-2",
-            "priority": "Critical",
-            "category": "High-Loss Recipe",
-            "title": f"{top_d['dish_name']} Accounting for Disproportionate Waste",
-            "observation": f"{top_d['dish_name']} is currently the #1 discarded menu item with {top_d['total_waste_kg']:.1f} kg waste ({top_d['waste_percentage']:.1f}% waste rate).",
-            "reason_metric": f"Financial loss of ₹{top_d['total_waste_cost']:,.0f} across {top_d['occurrences']} meal preparations.",
-            "recommendation": f"Calibrate standard batch portion sizes for {top_d['dish_name']} by approximately 10–15% based on actual intake.",
-        })
-
-    if consistent_dishes:
-        good_d = consistent_dishes[0]
-        insights.append({
-            "id": "ins-3",
-            "priority": "Performing Well",
-            "category": "Yield Benchmark",
-            "title": f"High Consumption Stability on {good_d['dish_name']}",
-            "observation": f"{good_d['dish_name']} demonstrated outstanding kitchen yield with only {good_d['waste_percentage']:.1f}% waste rate.",
-            "reason_metric": f"{good_d['consumption_rate_pct']:.1f}% of prepared volume consumed by patrons.",
-            "recommendation": "Maintain current recipe scaling ratios and use this dish as the portion benchmark for similar banquets.",
-        })
-
-    if total_reuse_kg > 0:
-        insights.append({
-            "id": "ins-4",
-            "priority": "Information",
-            "category": "Waste Diversion",
-            "title": f"{total_reuse_kg:.1f} kg Diverted via Safe Kitchen Repurposing",
-            "observation": f"Kitchen operations successfully logged {total_reuse_kg:.1f} kg of compliant food reuse ({reuse_rate_pct:.1f}% of total leftovers).",
-            "reason_metric": f"Diverted an estimated ₹{(total_reuse_kg * 90):,.0f} in food cost from landfill disposal.",
-            "recommendation": "Continue strict blast-chilling compliance audits before re-serving unexposed food.",
-        })
-
-    # Executive Summary text
-    exec_summary = (
+    # Executive Summary text from Intelligence Engine
+    exec_summary = intel_result.get("executive_summary") or (
         f"Culinary operations recorded {total_prepared_kg:.1f} kg prepared and {total_waste_kg:.1f} kg final waste "
         f"({waste_rate_pct:.2f}% waste rate) across {len(unique_shifts)} dining shifts. "
-        f"Direct financial loss stands at ₹{total_waste_cost:,.0f} ({waste_cost_per_guest:.1f} ₹/guest). "
-        f"{worst_sess_name} shift generated peak loss, with top 3 dishes accounting for "
-        f"{sum(d['total_waste_kg'] for d in top_wasted_dishes[:3]):.1f} kg of total discards."
+        f"Direct financial loss stands at ₹{total_waste_cost:,.0f} ({waste_cost_per_guest:.1f} ₹/guest)."
     )
 
     # Data Quality Report
@@ -762,12 +770,14 @@ def get_analytics_overview(
             "date_display": f"{dates_present[0]} to {dates_present[-1]}" if len(dates_present) > 1 else (dates_present[0] if dates_present else "All Available Dates"),
             "active_sessions": session if session != "all" else "All Sessions",
             "active_service_types": service_type if service_type != "all" else "All Service Types",
+            "active_event_type": event_type if event_type != "all" else "All Categories",
+            "active_event": event_id if event_id != "all" else "All Events",
         },
         "filter_options": {
             "hotels": all_hotels,
             "sessions": all_sessions,
             "service_types": all_service_types,
-            "event_types": ["Birthday", "Wedding", "Banquet / Event", "Conference", "Regular Hotel Service"],
+            "event_types": all_event_types,
             "categories": all_categories,
             "events": all_events,
         },
@@ -1018,8 +1028,55 @@ async def confirm_upload(
             db.flush()
 
         batch_import_id = str(uuid.uuid4())
+        hotel_cache: Dict[str, Hotel] = {}
+        event_cache: Dict[tuple, Event] = {}
         inserted = 0
+        skipped_dupes = 0
         for r in records:
+            h_name = r.get("hotel_name")
+            if h_name:
+                if h_name not in hotel_cache:
+                    h_obj = db.query(Hotel).filter(Hotel.name == h_name).first()
+                    if not h_obj:
+                        h_obj = Hotel(name=h_name, address="Ramoji Film City", phone="", email="")
+                        db.add(h_obj)
+                        db.flush()
+                    hotel_cache[h_name] = h_obj
+                r["hotel_id"] = hotel_cache[h_name].id
+
+            ev_name = r.get("event_name")
+            h_id = r.get("hotel_id")
+            if ev_name and h_id:
+                cache_key = (ev_name, h_id)
+                if cache_key not in event_cache:
+                    ev_obj = db.query(Event).filter(Event.name == ev_name, Event.hotel_id == h_id).first()
+                    if not ev_obj:
+                        ev_obj = Event(
+                            name=ev_name,
+                            hotel_id=h_id,
+                            event_date=r.get("record_date") or date.today(),
+                            event_type=r.get("event_type") or "Regular Hotel Service",
+                            expected_guests=r.get("pax") or 0,
+                        )
+                        db.add(ev_obj)
+                        db.flush()
+                    event_cache[cache_key] = ev_obj
+                r["event_id"] = event_cache[cache_key].id
+
+            # Prevent duplicate row insertion if duplicate_action is "import"
+            if duplicate_action != "replace":
+                existing = db.query(AnalyticsRecord).filter(
+                    AnalyticsRecord.hotel_name == r.get("hotel_name"),
+                    AnalyticsRecord.record_date == r.get("record_date"),
+                    AnalyticsRecord.session == r.get("session"),
+                    AnalyticsRecord.dish_name == r.get("dish_name"),
+                    AnalyticsRecord.source_file == r.get("source_file"),
+                    AnalyticsRecord.source_row == r.get("source_row"),
+                ).first()
+                if existing:
+                    skipped_dupes += 1
+                    continue
+
             r["import_id"] = batch_import_id
             rec = AnalyticsRecord(**r)
             db.add(rec)
@@ -1405,18 +1462,96 @@ def delete_analytics_record(
     db.commit()
     return None
 
-@router.delete("/api/analytics/records", status_code=status.HTTP_204_NO_CONTENT)
-def clear_analytics_records(
+@router.get("/api/analytics/dates-summary")
+def get_available_dates_summary(
     hotel: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin permissions required.")
+    query = db.query(
+        AnalyticsRecord.record_date,
+        AnalyticsRecord.hotel_name,
+        func.count(AnalyticsRecord.id).label("record_count"),
+        func.sum(AnalyticsRecord.actual_production_kg).label("total_production_kg"),
+        func.sum(AnalyticsRecord.total_waste_kg).label("total_waste_kg"),
+        func.sum(AnalyticsRecord.waste_cost).label("total_waste_cost"),
+    )
+    if hotel and hotel != "all":
+        query = query.filter(AnalyticsRecord.hotel_name == hotel)
+
+    rows = (
+        query.group_by(AnalyticsRecord.record_date, AnalyticsRecord.hotel_name)
+        .order_by(AnalyticsRecord.record_date.desc())
+        .all()
+    )
+
+    result = []
+    for r in rows:
+        if r.record_date:
+            result.append({
+                "date": str(r.record_date),
+                "hotel": r.hotel_name or "General",
+                "record_count": r.record_count,
+                "total_production_kg": round(float(r.total_production_kg or 0), 2),
+                "total_waste_kg": round(float(r.total_waste_kg or 0), 2),
+                "total_waste_cost": round(float(r.total_waste_cost or 0), 2),
+            })
+    return result
+
+@router.delete("/api/analytics/records", status_code=status.HTTP_200_OK)
+def clear_analytics_records(
+    hotel: Optional[str] = Query(None),
+    date_str: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if current_user.role not in ["admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Admin or Manager permissions required to delete records.")
+
     query = db.query(AnalyticsRecord)
     if hotel and hotel != "all":
         query = query.filter(AnalyticsRecord.hotel_name == hotel)
-    query.delete(synchronize_session=False)
+
+    target_desc = []
+    if hotel and hotel != "all":
+        target_desc.append(f"hotel '{hotel}'")
+
+    if date_str and date_str.strip():
+        try:
+            d_obj = datetime.strptime(date_str.strip(), "%Y-%m-%d").date()
+            query = query.filter(AnalyticsRecord.record_date == d_obj)
+            target_desc.append(f"date {date_str.strip()}")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format for 'date_str'. Expected YYYY-MM-DD.")
+    elif start_date or end_date:
+        if start_date and start_date.strip():
+            try:
+                d_start = datetime.strptime(start_date.strip(), "%Y-%m-%d").date()
+                query = query.filter(AnalyticsRecord.record_date >= d_start)
+                target_desc.append(f"from {start_date.strip()}")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_date format. Expected YYYY-MM-DD.")
+        if end_date and end_date.strip():
+            try:
+                d_end = datetime.strptime(end_date.strip(), "%Y-%m-%d").date()
+                query = query.filter(AnalyticsRecord.record_date <= d_end)
+                target_desc.append(f"to {end_date.strip()}")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_date format. Expected YYYY-MM-DD.")
+
+    del_count = query.delete(synchronize_session=False)
     db.commit()
-    return None
+
+    desc_str = " (" + ", ".join(target_desc) + ")" if target_desc else " (all records)"
+    return {
+        "status": "success",
+        "deleted_records": del_count,
+        "date": date_str,
+        "start_date": start_date,
+        "end_date": end_date,
+        "hotel": hotel,
+        "message": f"Successfully deleted {del_count} records{desc_str}."
+    }
 
