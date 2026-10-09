@@ -95,14 +95,27 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
         pax: number;
         left: number;
         reuse: number;
-        label: string;
+        startDate: string;
       }> = {};
 
-      trends.forEach((t, idx) => {
-        const weekNum = Math.floor(idx / 7);
-        const wKey = `W${weekNum + 1}`;
+      trends.forEach((t) => {
+        // True calendar week calculation based on Monday
+        const d = new Date(t.date + "T00:00:00");
+        let mondayStr = t.date;
+        if (!isNaN(d.getTime())) {
+          const day = d.getDay();
+          const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+          const mon = new Date(new Date(t.date + "T00:00:00").setDate(diff));
+          mondayStr = mon.toISOString().slice(0, 10);
+        }
+
+        const mParts = mondayStr.split("-");
+        const mNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const mLabel = mParts.length === 3 ? `${mNames[Number(mParts[1]) - 1]} ${mParts[2]}` : mondayStr;
+        const wKey = `Wk ${mLabel}`;
+
         if (!weekMap[wKey]) {
-          weekMap[wKey] = { points: [], prod: 0, cons: 0, waste: 0, cost: 0, pax: 0, left: 0, reuse: 0, label: t.date };
+          weekMap[wKey] = { points: [], prod: 0, cons: 0, waste: 0, cost: 0, pax: 0, left: 0, reuse: 0, startDate: mondayStr };
         }
         weekMap[wKey].points.push(t);
         weekMap[wKey].prod += t.production_kg || 0;
@@ -114,11 +127,11 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
         weekMap[wKey].reuse += t.reuse_kg || 0;
       });
 
-      return Object.entries(weekMap).map(([_, g]) => {
+      return Object.entries(weekMap).map(([wLabel, g]) => {
         const wp = g.prod > 0 ? (g.waste / g.prod) * 100 : 0;
         const wpg = g.pax > 0 ? (g.waste / g.pax) * 1000 : 0;
         return {
-          date: g.label,
+          date: wLabel,
           production_kg: Number(g.prod.toFixed(1)),
           consumption_kg: Number(g.cons.toFixed(1)),
           waste_kg: Number(g.waste.toFixed(1)),
@@ -177,13 +190,13 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
     maxVal = Math.max(...effectiveTrends.map((t) => t.waste_per_guest_g), 150);
   }
 
-  // Chart dimensions
+  // Chart dimensions - reserved 45px at bottom for rotated date ticks
   const svgWidth = 800;
-  const svgHeight = 240;
+  const svgHeight = 250;
   const paddingX = 50;
-  const paddingY = 30;
+  const paddingY = 25;
   const plotWidth = svgWidth - paddingX * 2;
-  const plotHeight = svgHeight - paddingY * 2;
+  const plotHeight = svgHeight - paddingY - 45;
 
   const getX = (idx: number) => {
     if (effectiveTrends.length === 1) return svgWidth / 2;
@@ -195,15 +208,94 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
     return paddingY + plotHeight - (clamped / (maxVal || 1)) * plotHeight;
   };
 
-  const createPath = (dataExtractor: (t: DailyTrendPoint) => number) => {
+  // Helper to calculate calendar days between two ISO date strings
+  const getDaysDiff = (d1: string, d2: string): number => {
+    try {
+      const t1 = new Date(d1 + "T00:00:00").getTime();
+      const t2 = new Date(d2 + "T00:00:00").getTime();
+      if (isNaN(t1) || isNaN(t2)) return 1;
+      return Math.abs(t2 - t1) / (1000 * 60 * 60 * 24);
+    } catch {
+      return 1;
+    }
+  };
+
+  // Detect unrecorded operational gaps (> 2 days)
+  const dateGaps = React.useMemo(() => {
+    if (granularity !== "daily" || !effectiveTrends || effectiveTrends.length < 2) return [];
+    const gaps: {
+      fromIdx: number;
+      toIdx: number;
+      fromDate: string;
+      toDate: string;
+      diffDays: number;
+      x1: number;
+      x2: number;
+    }[] = [];
+
+    for (let i = 0; i < effectiveTrends.length - 1; i++) {
+      const diff = getDaysDiff(effectiveTrends[i].date, effectiveTrends[i + 1].date);
+      if (diff > 2) {
+        gaps.push({
+          fromIdx: i,
+          toIdx: i + 1,
+          fromDate: effectiveTrends[i].date,
+          toDate: effectiveTrends[i + 1].date,
+          diffDays: Math.round(diff),
+          x1: getX(i),
+          x2: getX(i + 1),
+        });
+      }
+    }
+    return gaps;
+  }, [effectiveTrends, granularity]);
+
+  // Create solid and bridged paths preventing false continuous plunge across unrecorded dates
+  const createPathSegments = (dataExtractor: (t: DailyTrendPoint) => number) => {
+    if (effectiveTrends.length === 0) return { solidSegments: [], bridgeSegments: [] };
     if (effectiveTrends.length === 1) {
       const x = svgWidth / 2;
       const y = getY(dataExtractor(effectiveTrends[0]));
-      return `M ${x - 20} ${y} L ${x + 20} ${y}`;
+      return {
+        solidSegments: [`M ${x - 20} ${y} L ${x + 20} ${y}`],
+        bridgeSegments: [],
+      };
     }
-    return effectiveTrends
-      .map((t, i) => `${i === 0 ? "M" : "L"} ${getX(i).toFixed(1)} ${getY(dataExtractor(t)).toFixed(1)}`)
-      .join(" ");
+
+    const solidSegments: string[] = [];
+    const bridgeSegments: string[] = [];
+    let currentSegment: string[] = [];
+
+    effectiveTrends.forEach((t, i) => {
+      const x = getX(i).toFixed(1);
+      const y = getY(dataExtractor(t)).toFixed(1);
+
+      if (i === 0) {
+        currentSegment.push(`M ${x} ${y}`);
+      } else {
+        const prevT = effectiveTrends[i - 1];
+        const diff = granularity === "daily" ? getDaysDiff(prevT.date, t.date) : 1;
+
+        if (diff > 2) {
+          if (currentSegment.length > 0) {
+            solidSegments.push(currentSegment.join(" "));
+            currentSegment = [];
+          }
+          const prevX = getX(i - 1).toFixed(1);
+          const prevY = getY(dataExtractor(prevT)).toFixed(1);
+          bridgeSegments.push(`M ${prevX} ${prevY} L ${x} ${y}`);
+          currentSegment.push(`M ${x} ${y}`);
+        } else {
+          currentSegment.push(`L ${x} ${y}`);
+        }
+      }
+    });
+
+    if (currentSegment.length > 0) {
+      solidSegments.push(currentSegment.join(" "));
+    }
+
+    return { solidSegments, bridgeSegments };
   };
 
   return (
@@ -454,88 +546,238 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
               </g>
             )}
 
+            {/* Unrecorded Period Visual Gaps Band & Indicator */}
+            {dateGaps.map((gap, gIdx) => (
+              <g key={`gap-${gIdx}`} className="pointer-events-none">
+                <rect
+                  x={gap.x1}
+                  y={paddingY}
+                  width={Math.max(4, gap.x2 - gap.x1)}
+                  height={plotHeight}
+                  fill="#f8fafc"
+                  opacity="0.8"
+                />
+                <line
+                  x1={gap.x1 + (gap.x2 - gap.x1) / 2}
+                  y1={paddingY}
+                  x2={gap.x1 + (gap.x2 - gap.x1) / 2}
+                  y2={paddingY + plotHeight}
+                  stroke="#cbd5e1"
+                  strokeWidth="1"
+                  strokeDasharray="3 3"
+                />
+                <g transform={`translate(${gap.x1 + (gap.x2 - gap.x1) / 2}, ${paddingY + 16})`}>
+                  <rect
+                    x="-42"
+                    y="-9"
+                    width="84"
+                    height="18"
+                    rx="9"
+                    fill="#ffffff"
+                    stroke="#cbd5e1"
+                    strokeWidth="1"
+                  />
+                  <text
+                    x="0"
+                    y="3"
+                    textAnchor="middle"
+                    className="text-[9px] fill-slate-500 font-semibold"
+                  >
+                    {gap.diffDays}d Unrecorded
+                  </text>
+                </g>
+              </g>
+            ))}
+
             {/* Data Paths */}
             {viewMode === "volume" && (
               <>
                 {/* Production Path */}
-                {activeMetrics.production && (
-                  <path
-                    d={createPath((t) => t.production_kg)}
-                    fill="none"
-                    stroke="#2563eb"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                )}
+                {activeMetrics.production && (() => {
+                  const { solidSegments, bridgeSegments } = createPathSegments((t) => t.production_kg);
+                  return (
+                    <g>
+                      {bridgeSegments.map((d, bIdx) => (
+                        <path
+                          key={`prod-bridge-${bIdx}`}
+                          d={d}
+                          fill="none"
+                          stroke="#2563eb"
+                          strokeWidth="1.5"
+                          strokeDasharray="3 3"
+                          opacity="0.4"
+                        />
+                      ))}
+                      {solidSegments.map((d, sIdx) => (
+                        <path
+                          key={`prod-solid-${sIdx}`}
+                          d={d}
+                          fill="none"
+                          stroke="#2563eb"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      ))}
+                    </g>
+                  );
+                })()}
+
                 {/* Consumption Path */}
-                {activeMetrics.consumption && (
-                  <path
-                    d={createPath((t) => t.consumption_kg)}
-                    fill="none"
-                    stroke="#059669"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                )}
+                {activeMetrics.consumption && (() => {
+                  const { solidSegments, bridgeSegments } = createPathSegments((t) => t.consumption_kg);
+                  return (
+                    <g>
+                      {bridgeSegments.map((d, bIdx) => (
+                        <path
+                          key={`cons-bridge-${bIdx}`}
+                          d={d}
+                          fill="none"
+                          stroke="#059669"
+                          strokeWidth="1.5"
+                          strokeDasharray="3 3"
+                          opacity="0.4"
+                        />
+                      ))}
+                      {solidSegments.map((d, sIdx) => (
+                        <path
+                          key={`cons-solid-${sIdx}`}
+                          d={d}
+                          fill="none"
+                          stroke="#059669"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      ))}
+                    </g>
+                  );
+                })()}
+
                 {/* Waste Path */}
-                {activeMetrics.waste && (
-                  <path
-                    d={createPath((t) => t.waste_kg)}
-                    fill="none"
-                    stroke="#e11d48"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                )}
+                {activeMetrics.waste && (() => {
+                  const { solidSegments, bridgeSegments } = createPathSegments((t) => t.waste_kg);
+                  return (
+                    <g>
+                      {bridgeSegments.map((d, bIdx) => (
+                        <path
+                          key={`waste-bridge-${bIdx}`}
+                          d={d}
+                          fill="none"
+                          stroke="#e11d48"
+                          strokeWidth="1.5"
+                          strokeDasharray="3 3"
+                          opacity="0.4"
+                        />
+                      ))}
+                      {solidSegments.map((d, sIdx) => (
+                        <path
+                          key={`waste-solid-${sIdx}`}
+                          d={d}
+                          fill="none"
+                          stroke="#e11d48"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      ))}
+                    </g>
+                  );
+                })()}
+
                 {/* Leftover Path */}
-                {activeMetrics.leftover && (
-                  <path
-                    d={createPath((t) => t.leftover_kg)}
-                    fill="none"
-                    stroke="#d97706"
-                    strokeWidth="2"
-                    strokeDasharray="4 2"
-                  />
-                )}
+                {activeMetrics.leftover && (() => {
+                  const { solidSegments } = createPathSegments((t) => t.leftover_kg);
+                  return solidSegments.map((d, sIdx) => (
+                    <path
+                      key={`left-solid-${sIdx}`}
+                      d={d}
+                      fill="none"
+                      stroke="#d97706"
+                      strokeWidth="2"
+                      strokeDasharray="4 2"
+                    />
+                  ));
+                })()}
+
                 {/* Reuse Path */}
-                {activeMetrics.reuse && (
-                  <path
-                    d={createPath((t) => t.reuse_kg)}
-                    fill="none"
-                    stroke="#0d9488"
-                    strokeWidth="2"
-                    strokeDasharray="3 3"
-                  />
-                )}
+                {activeMetrics.reuse && (() => {
+                  const { solidSegments } = createPathSegments((t) => t.reuse_kg);
+                  return solidSegments.map((d, sIdx) => (
+                    <path
+                      key={`reuse-solid-${sIdx}`}
+                      d={d}
+                      fill="none"
+                      stroke="#0d9488"
+                      strokeWidth="2"
+                      strokeDasharray="3 3"
+                    />
+                  ));
+                })()}
               </>
             )}
 
-            {viewMode === "waste_pct" && (
-              <path
-                d={createPath((t) => t.waste_percentage)}
-                fill="none"
-                stroke="#e11d48"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            )}
+            {viewMode === "waste_pct" && (() => {
+              const { solidSegments, bridgeSegments } = createPathSegments((t) => t.waste_percentage);
+              return (
+                <g>
+                  {bridgeSegments.map((d, bIdx) => (
+                    <path
+                      key={`wp-bridge-${bIdx}`}
+                      d={d}
+                      fill="none"
+                      stroke="#e11d48"
+                      strokeWidth="1.5"
+                      strokeDasharray="3 3"
+                      opacity="0.4"
+                    />
+                  ))}
+                  {solidSegments.map((d, sIdx) => (
+                    <path
+                      key={`wp-solid-${sIdx}`}
+                      d={d}
+                      fill="none"
+                      stroke="#e11d48"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  ))}
+                </g>
+              );
+            })()}
 
-            {viewMode === "waste_per_guest" && (
-              <path
-                d={createPath((t) => t.waste_per_guest_g)}
-                fill="none"
-                stroke="#7c3aed"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            )}
+            {viewMode === "waste_per_guest" && (() => {
+              const { solidSegments, bridgeSegments } = createPathSegments((t) => t.waste_per_guest_g);
+              return (
+                <g>
+                  {bridgeSegments.map((d, bIdx) => (
+                    <path
+                      key={`wpg-bridge-${bIdx}`}
+                      d={d}
+                      fill="none"
+                      stroke="#7c3aed"
+                      strokeWidth="1.5"
+                      strokeDasharray="3 3"
+                      opacity="0.4"
+                    />
+                  ))}
+                  {solidSegments.map((d, sIdx) => (
+                    <path
+                      key={`wpg-solid-${sIdx}`}
+                      d={d}
+                      fill="none"
+                      stroke="#7c3aed"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  ))}
+                </g>
+              );
+            })()}
 
-            {/* Data Points and X Labels */}
+            {/* Data Points and Formatted X Axis Labels (Anti-Collision Rotation) */}
             {effectiveTrends.map((t, i) => {
               const x = getX(i);
               let activeVal = t.waste_kg;
@@ -543,24 +785,48 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
               else if (viewMode === "waste_per_guest") activeVal = t.waste_per_guest_g;
               const y = getY(activeVal);
 
+              const total = effectiveTrends.length;
+              const step = total > 20 ? 3 : total > 10 ? 2 : 1;
+              const isGapBorder = dateGaps.some((g) => g.fromIdx === i || g.toIdx === i);
+              const showLabel = i === 0 || i === total - 1 || isGapBorder || i % step === 0;
+
+              let formattedLabel = t.date;
+              if (granularity === "monthly") {
+                const [yr, mo] = t.date.split("-");
+                const mNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                formattedLabel = `${mNames[Number(mo) - 1] || mo} '${yr ? yr.slice(2) : ""}`;
+              } else if (granularity === "weekly") {
+                formattedLabel = t.date;
+              } else {
+                const parts = t.date.split("-");
+                if (parts.length === 3) {
+                  const mNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                  const mName = mNames[Number(parts[1]) - 1] || parts[1];
+                  formattedLabel = `${mName} ${parts[2]}`;
+                }
+              }
+
               return (
                 <g key={i} className="group cursor-pointer">
                   {/* Point */}
                   <circle
                     cx={x}
                     cy={y}
-                    r="4.5"
+                    r="4"
                     className="fill-white stroke-slate-900 stroke-2 group-hover:scale-125 transition-transform"
                   />
-                  {/* Date label */}
-                  <text
-                    x={x}
-                    y={svgHeight - 8}
-                    textAnchor="middle"
-                    className="text-[10px] fill-slate-500 font-medium"
-                  >
-                    {t.date.length > 7 ? t.date.slice(5) : t.date}
-                  </text>
+                  {/* Formatted, Rotated, Non-Colliding Date Label */}
+                  {showLabel && (
+                    <text
+                      x={x}
+                      y={svgHeight - 8}
+                      textAnchor="end"
+                      transform={`rotate(-35, ${x}, ${svgHeight - 8})`}
+                      className="text-[9.5px] fill-slate-500 font-medium tracking-tight select-none"
+                    >
+                      {formattedLabel}
+                    </text>
+                  )}
                 </g>
               );
             })}

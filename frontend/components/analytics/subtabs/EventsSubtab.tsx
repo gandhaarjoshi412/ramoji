@@ -653,13 +653,6 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Event-Type Waste Intelligence & Dish Comparison Workspace */}
-      <EventTypeIntelligenceWorkspace
-        initialHotel={selectedHotel}
-        initialDatePreset={datePreset}
-        isEmbeddedInEventsPage={false}
-      />
-
       {/* Header Bar (Part 4.1) */}
       <div className="hotel-card p-6 bg-white border border-slate-200/90 rounded-2xl shadow-xs space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -932,6 +925,13 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
           </div>
         )}
       </div>
+
+      {/* Event-Type Waste Intelligence & Dish Comparison Workspace (Positioned below Events Management) */}
+      <EventTypeIntelligenceWorkspace
+        initialHotel={selectedHotel}
+        initialDatePreset={datePreset}
+        isEmbeddedInEventsPage={true}
+      />
 
       {/* CREATE EVENT MODAL */}
       {createModalOpen && (

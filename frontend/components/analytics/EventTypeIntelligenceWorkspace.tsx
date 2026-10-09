@@ -68,6 +68,9 @@ export const EventTypeIntelligenceWorkspace: React.FC<EventTypeIntelligenceWorks
   const [datePreset, setDatePreset] = useState<string>(initialDatePreset);
   const [selectedCategory, setSelectedCategory] = useState<string>("Corporate");
   const [dishSearchQuery, setDishSearchQuery] = useState<string>("");
+  const [dishCategoryFilter, setDishCategoryFilter] = useState<string>("all");
+  const [dietaryFilter, setDietaryFilter] = useState<string>("all");
+  const [wasteRateFilter, setWasteRateFilter] = useState<string>("all");
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("All");
   const [chartUnit, setChartUnit] = useState<ChartUnit>("kg");
   const [activeViewTab, setActiveViewTab] = useState<ActiveViewTab>("matrix");
@@ -101,6 +104,19 @@ export const EventTypeIntelligenceWorkspace: React.FC<EventTypeIntelligenceWorks
   useEffect(() => {
     fetchData();
   }, [selectedHotel, datePreset]);
+
+  // Extract unique categories and counts from the dish comparison matrix
+  const dishCategoryOptions = useMemo(() => {
+    if (!data?.dish_comparison_matrix) return [];
+    const counts: Record<string, number> = {};
+    data.dish_comparison_matrix.forEach((d) => {
+      const cat = d.category || "Uncategorized";
+      counts[cat] = (counts[cat] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [data]);
 
   // Active Category Data
   const activeCategorySummary = useMemo<EventTypeAnalyticsCategory | null>(() => {
@@ -136,6 +152,31 @@ export const EventTypeIntelligenceWorkspace: React.FC<EventTypeIntelligenceWorks
       );
     }
 
+    if (dishCategoryFilter !== "all") {
+      list = list.filter((d) => d.category.toLowerCase() === dishCategoryFilter.toLowerCase());
+    }
+
+    if (dietaryFilter !== "all") {
+      list = list.filter((d) => (d.food_type || "").toLowerCase() === dietaryFilter.toLowerCase());
+    }
+
+    if (wasteRateFilter === "high") {
+      list = list.filter((d) => {
+        const rate = d.total_prepared_kg > 0 ? (d.total_waste_kg / d.total_prepared_kg) * 100 : 0;
+        return rate >= 10;
+      });
+    } else if (wasteRateFilter === "medium") {
+      list = list.filter((d) => {
+        const rate = d.total_prepared_kg > 0 ? (d.total_waste_kg / d.total_prepared_kg) * 100 : 0;
+        return rate >= 5 && rate < 10;
+      });
+    } else if (wasteRateFilter === "low") {
+      list = list.filter((d) => {
+        const rate = d.total_prepared_kg > 0 ? (d.total_waste_kg / d.total_prepared_kg) * 100 : 0;
+        return rate < 5;
+      });
+    }
+
     list.sort((a, b) => {
       let valA = 0;
       let valB = 0;
@@ -160,7 +201,7 @@ export const EventTypeIntelligenceWorkspace: React.FC<EventTypeIntelligenceWorks
     });
 
     return list;
-  }, [data, dishSearchQuery, matrixSortCol, matrixSortAsc, selectedCategory]);
+  }, [data, dishSearchQuery, dishCategoryFilter, dietaryFilter, wasteRateFilter, matrixSortCol, matrixSortAsc, selectedCategory]);
 
   const toggleSort = (col: string) => {
     if (matrixSortCol === col) {
@@ -488,93 +529,187 @@ export const EventTypeIntelligenceWorkspace: React.FC<EventTypeIntelligenceWorks
             </div>
           )}
 
-          {/* View Mode Subtab Switcher */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 pb-3">
-            <div className="flex items-center gap-2 overflow-x-auto">
-              <button
-                type="button"
-                onClick={() => setActiveViewTab("matrix")}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
-                  activeViewTab === "matrix"
-                    ? "bg-emerald-700 text-white border-emerald-700 shadow-xs font-bold"
-                    : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                }`}
-              >
-                <Layers className="w-3.5 h-3.5" />
-                <span>Dish Comparison Matrix</span>
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/10">
-                  {filteredDishMatrix.length}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveViewTab("cards")}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
-                  activeViewTab === "cards"
-                    ? "bg-emerald-700 text-white border-emerald-700 shadow-xs font-bold"
-                    : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                }`}
-              >
-                <UtensilsCrossed className="w-3.5 h-3.5" />
-                <span>Visual Food Cards</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveViewTab("charts")}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
-                  activeViewTab === "charts"
-                    ? "bg-emerald-700 text-white border-emerald-700 shadow-xs font-bold"
-                    : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                }`}
-              >
-                <BarChart3 className="w-3.5 h-3.5" />
-                <span>Analytical Charts Suite</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveViewTab("profiles")}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
-                  activeViewTab === "profiles"
-                    ? "bg-emerald-700 text-white border-emerald-700 shadow-xs font-bold"
-                    : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                }`}
-              >
-                <Briefcase className="w-3.5 h-3.5" />
-                <span>Audience Behavioral Profiles</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveViewTab("integrity")}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
-                  activeViewTab === "integrity"
-                    ? "bg-emerald-700 text-white border-emerald-700 shadow-xs font-bold"
-                    : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                }`}
-              >
-                <ShieldAlert className="w-3.5 h-3.5" />
-                <span>Data Integrity & Audit</span>
-                {data?.data_quality_audit && data.data_quality_audit.flagged_records_count > 0 && (
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500 text-white font-bold">
-                    {data.data_quality_audit.flagged_records_count}
+          {/* View Mode Subtab Switcher & Interactive Filter Toolbar */}
+          <div className="space-y-3 border-b border-slate-200/80 pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
+                <button
+                  type="button"
+                  onClick={() => setActiveViewTab("matrix")}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
+                    activeViewTab === "matrix"
+                      ? "bg-emerald-700 text-white border-emerald-700 shadow-xs font-bold"
+                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>Dish Comparison Matrix</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/10">
+                    {filteredDishMatrix.length}
                   </span>
-                )}
-              </button>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveViewTab("cards")}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
+                    activeViewTab === "cards"
+                      ? "bg-emerald-700 text-white border-emerald-700 shadow-xs font-bold"
+                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  <UtensilsCrossed className="w-3.5 h-3.5" />
+                  <span>Visual Food Cards</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveViewTab("charts")}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
+                    activeViewTab === "charts"
+                      ? "bg-emerald-700 text-white border-emerald-700 shadow-xs font-bold"
+                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  <BarChart3 className="w-3.5 h-3.5" />
+                  <span>Analytical Charts Suite</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveViewTab("profiles")}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
+                    activeViewTab === "profiles"
+                      ? "bg-emerald-700 text-white border-emerald-700 shadow-xs font-bold"
+                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  <Briefcase className="w-3.5 h-3.5" />
+                  <span>Audience Behavioral Profiles</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveViewTab("integrity")}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
+                    activeViewTab === "integrity"
+                      ? "bg-emerald-700 text-white border-emerald-700 shadow-xs font-bold"
+                      : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  <span>Data Integrity & Audit</span>
+                  {data?.data_quality_audit && data.data_quality_audit.flagged_records_count > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500 text-white font-bold">
+                      {data.data_quality_audit.flagged_records_count}
+                    </span>
+                  )}
+                </button>
+              </div>
             </div>
 
-            {/* Dish Search Input */}
-            <div className="relative w-full sm:w-64">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search dish (e.g. Rice, Paneer, Naan)..."
-                value={dishSearchQuery}
-                onChange={(e) => setDishSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 text-slate-900"
-              />
+            {/* Filter, Search & Dropdown Menus Toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
+              <div className="flex flex-wrap items-center gap-2.5 w-full">
+                {/* Dish Search Input */}
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search dish (e.g. Rice, Paneer, Naan)..."
+                    value={dishSearchQuery}
+                    onChange={(e) => setDishSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-3 py-1.5 text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 text-slate-900"
+                  />
+                </div>
+
+                {/* Dropdown Menu: Dish Course / Category Filter */}
+                <div className="relative">
+                  <select
+                    value={dishCategoryFilter}
+                    onChange={(e) => setDishCategoryFilter(e.target.value)}
+                    title="Filter by Dish Category"
+                    aria-label="Filter by Dish Category"
+                    className="text-xs font-semibold px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 hover:border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 shadow-2xs cursor-pointer"
+                  >
+                    <option value="all">
+                      All Categories ({data?.dish_comparison_matrix?.length || 0})
+                    </option>
+                    {dishCategoryOptions.map((opt) => (
+                      <option key={opt.name} value={opt.name}>
+                        {opt.name} ({opt.count})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Dropdown Menu: Sort Ordering */}
+                <div className="relative">
+                  <select
+                    value={matrixSortCol}
+                    onChange={(e) => {
+                      setMatrixSortCol(e.target.value);
+                      setMatrixSortAsc(e.target.value === "dish_name");
+                    }}
+                    title="Sort dishes"
+                    aria-label="Sort dishes"
+                    className="text-xs font-semibold px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 hover:border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 shadow-2xs cursor-pointer"
+                  >
+                    <option value="waste_kg">Sort: Highest Waste (kg) ↓</option>
+                    <option value="waste_cost">Sort: Financial Loss (₹) ↓</option>
+                    <option value="prepared_kg">Sort: Total Prepared (kg) ↓</option>
+                    <option value="dish_name">Sort: Dish Name (A-Z)</option>
+                    <option value="active_cat_waste_pct">Sort: {selectedCategory} Waste % ↓</option>
+                  </select>
+                </div>
+
+                {/* Dropdown Menu: Dietary / Food Type */}
+                <div className="relative">
+                  <select
+                    value={dietaryFilter}
+                    onChange={(e) => setDietaryFilter(e.target.value)}
+                    title="Filter by dietary type"
+                    aria-label="Filter by dietary type"
+                    className="text-xs font-semibold px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 hover:border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 shadow-2xs cursor-pointer"
+                  >
+                    <option value="all">All Food Types</option>
+                    <option value="Veg">Vegetarian Only</option>
+                    <option value="Non-Veg">Non-Vegetarian Only</option>
+                  </select>
+                </div>
+
+                {/* Dropdown Menu: Discard / Waste Rate Threshold */}
+                <div className="relative">
+                  <select
+                    value={wasteRateFilter}
+                    onChange={(e) => setWasteRateFilter(e.target.value)}
+                    title="Filter by discard level"
+                    aria-label="Filter by discard level"
+                    className="text-xs font-semibold px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-700 hover:border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 shadow-2xs cursor-pointer"
+                  >
+                    <option value="all">All Discard Levels</option>
+                    <option value="high">High Discard (≥ 10%)</option>
+                    <option value="medium">Moderate Discard (5% - 10%)</option>
+                    <option value="low">Controlled / Low (&lt; 5%)</option>
+                  </select>
+                </div>
+
+                {/* Reset Filters Shortcut Button */}
+                {(dishSearchQuery || dishCategoryFilter !== "all" || dietaryFilter !== "all" || wasteRateFilter !== "all") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDishSearchQuery("");
+                      setDishCategoryFilter("all");
+                      setDietaryFilter("all");
+                      setWasteRateFilter("all");
+                    }}
+                    className="px-2.5 py-1 text-xs text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg font-bold transition-colors cursor-pointer ml-auto sm:ml-0"
+                  >
+                    Reset Filters
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
