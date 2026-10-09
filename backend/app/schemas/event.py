@@ -14,7 +14,7 @@ class EventBase(BaseModel):
     expected_guests: int = Field(default=0, ge=0)
     actual_guests: int = Field(default=0, ge=0)
     status: str = Field(default="Upcoming", max_length=50)
-    is_archived: bool = False
+    is_archived: Optional[bool] = False
     notes: Optional[str] = None
 
 class EventCreate(EventBase):
@@ -60,6 +60,7 @@ class EventListItemResponse(EventBase):
     model_config = ConfigDict(from_attributes=True)
 
 class EventDetailResponse(EventListItemResponse):
+    sessions: List[str] = []
     event_foods: List[EventFoodResponse] = []
 
 

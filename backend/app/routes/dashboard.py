@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session, joinedload
-from typing import List, Dict
+from typing import List, Dict, Optional
+from datetime import date, timedelta
 
 from app.database import get_db
 from app.models.user import User
@@ -20,19 +21,37 @@ router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
 @router.get("/summary", response_model=DashboardSummaryResponse)
 def get_dashboard_summary(
+    period: Optional[str] = Query("all"),  # "daily", "weekly", "monthly", "all"
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    events = (
+    query = (
         db.query(Event)
         .filter(Event.hotel_id == current_user.hotel_id)
         .options(
             joinedload(Event.event_foods).joinedload(EventFood.food_item),
             joinedload(Event.event_foods).joinedload(EventFood.waste_records),
         )
-        .order_by(Event.event_date.asc())
-        .all()
     )
+
+    today = date.today()
+    if period == "daily":
+        # Check today's events, if none, fallback to most recent date so dashboard is informative
+        daily_query = query.filter(Event.event_date == today)
+        if daily_query.count() > 0:
+            query = daily_query
+        else:
+            latest_ev = query.order_by(Event.event_date.desc()).first()
+            if latest_ev:
+                query = query.filter(Event.event_date == latest_ev.event_date)
+            else:
+                query = daily_query
+    elif period == "weekly":
+        query = query.filter(Event.event_date >= today - timedelta(days=7))
+    elif period == "monthly":
+        query = query.filter(Event.event_date >= today - timedelta(days=30))
+
+    events = query.order_by(Event.event_date.asc()).all()
 
     total_events = len(events)
     completed_events = sum(1 for e in events if e.status == "Completed")
@@ -138,6 +157,7 @@ def get_dashboard_summary(
         )
 
     return DashboardSummaryResponse(
+        period=period,
         total_events=total_events,
         completed_events=completed_events,
         upcoming_events=upcoming_events,

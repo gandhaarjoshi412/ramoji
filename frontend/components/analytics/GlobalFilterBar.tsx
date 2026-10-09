@@ -40,11 +40,12 @@ interface GlobalFilterBarProps {
 }
 
 const DATE_PRESETS = [
-  { id: "all", label: "All Dates" },
-  { id: "today", label: "Today" },
+  { id: "all", label: "All Dates (Consolidated)" },
+  { id: "today", label: "Daily (Today)" },
   { id: "yesterday", label: "Yesterday" },
-  { id: "last_7", label: "Last 7 Days" },
-  { id: "last_30", label: "Last 30 Days" },
+  { id: "last_7", label: "Weekly (Last 7 Days)" },
+  { id: "this_week", label: "This Week" },
+  { id: "last_30", label: "Monthly (Last 30 Days)" },
   { id: "this_month", label: "This Month" },
   { id: "previous_month", label: "Previous Month" },
   { id: "custom", label: "Custom Range" },

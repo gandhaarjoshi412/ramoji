@@ -21,6 +21,7 @@ import {
   Building2,
   Trash2,
 } from "lucide-react";
+import { EventTypeIntelligenceWorkspace } from "@/components/analytics/EventTypeIntelligenceWorkspace";
 
 export default function EventsPage() {
   const { user, loading: authLoading } = useAuth();
@@ -106,6 +107,13 @@ export default function EventsPage() {
           Create Banquet Event
         </Link>
       </div>
+
+      {/* Event-Type Waste Intelligence & Dish Comparison Workspace */}
+      <EventTypeIntelligenceWorkspace
+        initialHotel="all"
+        initialDatePreset="all"
+        isEmbeddedInEventsPage={true}
+      />
 
       {/* Filter & Search Toolbar */}
       <div className="hotel-card p-4 bg-white border border-slate-200/80 shadow-card flex flex-col md:flex-row gap-4 justify-between items-center">

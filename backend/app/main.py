@@ -27,7 +27,9 @@ from app.routes import (
 async def lifespan(app: FastAPI):
     # Ensure upload directory exists
     upload_path = Path(settings.UPLOAD_DIR)
-    upload_path.mkdir(parents=True, exist_ok=True)
+    if not upload_path.is_absolute() and (Path("backend") / upload_path).is_dir():
+        upload_path = Path("backend") / upload_path
+    upload_path.resolve().mkdir(parents=True, exist_ok=True)
 
     # Startup: Create tables if not present and seed initial data
     Base.metadata.create_all(bind=engine)

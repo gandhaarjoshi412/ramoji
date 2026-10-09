@@ -482,6 +482,61 @@ export interface HotelAnalyticsResponse {
   };
 }
 
+export interface DishConsumptionStat {
+  dish_name: string;
+  category: string;
+  food_type: string;
+  prepared_kg: number;
+  consumed_kg: number;
+  waste_kg: number;
+  waste_cost: number;
+  consumption_rate_pct: number;
+  waste_rate_pct: number;
+  consumed_per_guest_g: number;
+  service_count: number;
+  popularity_status: string;
+  recommendation?: string;
+}
+
+export interface DishCategoryBreakdown {
+  category: string;
+  dish_count: number;
+  prepared_kg: number;
+  consumed_kg: number;
+  waste_kg: number;
+  waste_cost: number;
+  consumption_rate_pct: number;
+  waste_rate_pct: number;
+}
+
+export interface DayOfWeekTrendItem {
+  day: string;
+  day_short: string;
+  day_index: number;
+  event_count: number;
+  total_pax: number;
+  avg_pax: number;
+  prepared_kg: number;
+  consumed_kg: number;
+  waste_kg: number;
+  waste_cost: number;
+  consumption_rate_pct: number;
+  waste_rate_pct: number;
+}
+
+export interface EventTypeTimelinePoint {
+  date: string;
+  label: string;
+  prepared_kg: number;
+  consumed_kg: number;
+  waste_kg: number;
+  pax: number;
+  consumption_rate_pct: number;
+  waste_rate_pct: number;
+  waste_cost: number;
+  event_names?: string[];
+}
+
 export interface EventTypeAnalyticsCategory {
   category: string;
   event_count: number;
@@ -491,6 +546,7 @@ export interface EventTypeAnalyticsCategory {
   total_consumed_kg: number;
   total_waste_kg: number;
   waste_rate_pct: number;
+  consumption_rate_pct?: number;
   waste_per_guest_g: number;
   total_waste_cost: number;
   waste_cost_per_guest: number;
@@ -520,6 +576,151 @@ export interface EventTypeAnalyticsCategory {
     waste_cost: number;
     compared_to_benchmark: number | null;
   }[];
+  dish_consumption_analysis?: {
+    most_consumed: DishConsumptionStat[];
+    least_consumed: DishConsumptionStat[];
+    all_dishes: DishConsumptionStat[];
+    dish_categories: DishCategoryBreakdown[];
+  };
+  day_of_week_trends?: DayOfWeekTrendItem[];
+  timeline_trends?: {
+    daily: EventTypeTimelinePoint[];
+    weekly: EventTypeTimelinePoint[];
+    monthly: EventTypeTimelinePoint[];
+  };
+}
+
+export interface CrossEventDishItem {
+  dish_name: string;
+  consumption_rate_pct: number;
+  consumed_kg?: number;
+  waste_rate_pct?: number;
+  waste_kg?: number;
+  reason: string;
+}
+
+export interface CrossEventProfile {
+  event_type: string;
+  title: string;
+  tagline: string;
+  consumption_rate_pct: number;
+  waste_rate_pct: number;
+  intake_per_guest_g: number;
+  guest_count: number;
+  behavior_summary: string;
+  eaten_more: CrossEventDishItem[];
+  eaten_less: CrossEventDishItem[];
+  kitchen_guidance: string;
+}
+
+export interface HeadToHeadCategoryItem {
+  dish_category: string;
+  corporate: { pickup_pct: number; assessment: string };
+  wedding: { pickup_pct: number; assessment: string };
+  social: { pickup_pct: number; assessment: string };
+  key_takeaway: string;
+}
+
+export interface CrossEventComparison {
+  headline: string;
+  core_finding: string;
+  profiles: CrossEventProfile[];
+  head_to_head_comparisons: HeadToHeadCategoryItem[];
+}
+
+export interface DishCategoryPerformance {
+  events_count: number;
+  records_count: number;
+  prepared_kg: number;
+  consumed_kg: number;
+  waste_kg: number;
+  waste_cost: number;
+  waste_rate_pct: number;
+  consumption_rate_pct: number;
+  waste_per_guest_g: number;
+  status: string;
+}
+
+export interface DishComparisonMatrixItem {
+  dish_name: string;
+  category: string;
+  food_type: string;
+  image_url: string;
+  matched_aliases: string[];
+  total_prepared_kg: number;
+  total_consumed_kg: number;
+  total_waste_kg: number;
+  total_waste_cost: number;
+  categories: Record<string, DishCategoryPerformance>;
+  highest_waste_category: string;
+  lowest_waste_category: string;
+  key_takeaway: string;
+  recommendation: string;
+}
+
+export interface GroupedDishChartItem {
+  dish_name: string;
+  category: string;
+  corporate_waste_kg: number;
+  corporate_waste_pct: number;
+  social_waste_kg: number;
+  social_waste_pct: number;
+  wedding_waste_kg: number;
+  wedding_waste_pct: number;
+  conference_waste_kg: number;
+  conference_waste_pct: number;
+  custom_waste_kg: number;
+  custom_waste_pct: number;
+}
+
+export interface WastePerGuestChartItem {
+  category: string;
+  waste_per_guest_g: number;
+  total_pax: number;
+  event_count: number;
+  total_waste_kg: number;
+}
+
+export interface FinancialImpactChartItem {
+  dish_name: string;
+  category: string;
+  total_waste_cost: number;
+  corporate_cost: number;
+  wedding_cost: number;
+  social_cost: number;
+  conference_cost: number;
+  custom_cost: number;
+}
+
+export interface DishHeatmapCell {
+  waste_rate_pct: number;
+  waste_kg: number;
+  prepared_kg: number;
+  has_data: boolean;
+}
+
+export interface DishHeatmapRow {
+  dish_name: string;
+  category: string;
+  cells: Record<string, DishHeatmapCell>;
+}
+
+export interface DataQualityAnomalyItem {
+  record_id?: number | string;
+  dish_name: string;
+  event_name: string;
+  hotel_name: string;
+  flag_reason: string;
+  severity: "Critical" | "Attention" | "Information";
+  review_status: "Valid" | "Needs Review" | "Corrected" | "Excluded";
+  impact: string;
+}
+
+export interface DataQualityAuditSummary {
+  total_records_audited: number;
+  clean_records_count: number;
+  flagged_records_count: number;
+  anomalies: DataQualityAnomalyItem[];
 }
 
 export interface EventTypesAnalyticsResponse {
@@ -529,6 +730,20 @@ export interface EventTypesAnalyticsResponse {
     rule: string;
     min_sample_size: number;
   };
+  cross_event_comparison?: CrossEventComparison;
+  dish_comparison_matrix?: DishComparisonMatrixItem[];
+  grouped_dish_chart_data?: GroupedDishChartItem[];
+  waste_per_guest_chart_data?: WastePerGuestChartItem[];
+  financial_impact_chart_data?: FinancialImpactChartItem[];
+  dish_waste_heatmap?: DishHeatmapRow[];
+  operational_intelligence?: {
+    executive_summary: string;
+    insights: ManagementInsight[];
+    has_baseline: boolean;
+    baseline_count: number;
+    baseline_metrics?: any;
+  };
+  data_quality_audit?: DataQualityAuditSummary;
 }
 
 export interface EodReportSessionItem {

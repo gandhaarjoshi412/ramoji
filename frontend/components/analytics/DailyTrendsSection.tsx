@@ -19,12 +19,14 @@ interface DailyTrendsSectionProps {
 }
 
 type ViewMode = "volume" | "waste_pct" | "waste_per_guest";
+type GranularityMode = "daily" | "weekly" | "monthly";
 
 export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
   trends,
   dateCoverage,
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>("volume");
+  const [granularity, setGranularity] = useState<GranularityMode>("daily");
   const [activeMetrics, setActiveMetrics] = useState({
     production: true,
     consumption: true,
@@ -33,11 +35,111 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
     reuse: false,
   });
 
-  if (!trends || trends.length === 0) {
+  const effectiveTrends: DailyTrendPoint[] = React.useMemo(() => {
+    if (!trends || trends.length === 0 || granularity === "daily") {
+      return trends || [];
+    }
+
+    if (granularity === "monthly") {
+      const monthMap: Record<string, {
+        points: DailyTrendPoint[];
+        prod: number;
+        cons: number;
+        waste: number;
+        cost: number;
+        pax: number;
+        left: number;
+        reuse: number;
+      }> = {};
+
+      trends.forEach((t) => {
+        const mKey = t.date.slice(0, 7); // YYYY-MM
+        if (!monthMap[mKey]) {
+          monthMap[mKey] = { points: [], prod: 0, cons: 0, waste: 0, cost: 0, pax: 0, left: 0, reuse: 0 };
+        }
+        monthMap[mKey].points.push(t);
+        monthMap[mKey].prod += t.production_kg || 0;
+        monthMap[mKey].cons += t.consumption_kg || 0;
+        monthMap[mKey].waste += t.waste_kg || 0;
+        monthMap[mKey].cost += t.waste_cost || 0;
+        monthMap[mKey].pax += t.pax || 0;
+        monthMap[mKey].left += t.leftover_kg || 0;
+        monthMap[mKey].reuse += t.reuse_kg || 0;
+      });
+
+      return Object.entries(monthMap).map(([mKey, g]) => {
+        const wp = g.prod > 0 ? (g.waste / g.prod) * 100 : 0;
+        const wpg = g.pax > 0 ? (g.waste / g.pax) * 1000 : 0;
+        return {
+          date: mKey,
+          production_kg: Number(g.prod.toFixed(1)),
+          consumption_kg: Number(g.cons.toFixed(1)),
+          waste_kg: Number(g.waste.toFixed(1)),
+          waste_cost: Number(g.cost.toFixed(0)),
+          waste_percentage: Number(wp.toFixed(1)),
+          waste_per_guest_g: Number(wpg.toFixed(0)),
+          pax: g.pax,
+          leftover_kg: Number(g.left.toFixed(1)),
+          reuse_kg: Number(g.reuse.toFixed(1)),
+        };
+      });
+    }
+
+    if (granularity === "weekly") {
+      const weekMap: Record<string, {
+        points: DailyTrendPoint[];
+        prod: number;
+        cons: number;
+        waste: number;
+        cost: number;
+        pax: number;
+        left: number;
+        reuse: number;
+        label: string;
+      }> = {};
+
+      trends.forEach((t, idx) => {
+        const weekNum = Math.floor(idx / 7);
+        const wKey = `W${weekNum + 1}`;
+        if (!weekMap[wKey]) {
+          weekMap[wKey] = { points: [], prod: 0, cons: 0, waste: 0, cost: 0, pax: 0, left: 0, reuse: 0, label: t.date };
+        }
+        weekMap[wKey].points.push(t);
+        weekMap[wKey].prod += t.production_kg || 0;
+        weekMap[wKey].cons += t.consumption_kg || 0;
+        weekMap[wKey].waste += t.waste_kg || 0;
+        weekMap[wKey].cost += t.waste_cost || 0;
+        weekMap[wKey].pax += t.pax || 0;
+        weekMap[wKey].left += t.leftover_kg || 0;
+        weekMap[wKey].reuse += t.reuse_kg || 0;
+      });
+
+      return Object.entries(weekMap).map(([_, g]) => {
+        const wp = g.prod > 0 ? (g.waste / g.prod) * 100 : 0;
+        const wpg = g.pax > 0 ? (g.waste / g.pax) * 1000 : 0;
+        return {
+          date: g.label,
+          production_kg: Number(g.prod.toFixed(1)),
+          consumption_kg: Number(g.cons.toFixed(1)),
+          waste_kg: Number(g.waste.toFixed(1)),
+          waste_cost: Number(g.cost.toFixed(0)),
+          waste_percentage: Number(wp.toFixed(1)),
+          waste_per_guest_g: Number(wpg.toFixed(0)),
+          pax: g.pax,
+          leftover_kg: Number(g.left.toFixed(1)),
+          reuse_kg: Number(g.reuse.toFixed(1)),
+        };
+      });
+    }
+
+    return trends || [];
+  }, [trends, granularity]);
+
+  if (!effectiveTrends || effectiveTrends.length === 0) {
     return (
       <div className="hotel-card p-8 bg-white border border-slate-200 text-center">
         <Activity className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-        <h4 className="text-sm font-bold text-slate-700">No Daily Trend Data Available</h4>
+        <h4 className="text-sm font-bold text-slate-700">No Operational Trend Data Available</h4>
         <p className="text-xs text-slate-400 mt-1">
           Expand date filters to view day-over-day operational patterns.
         </p>
@@ -46,8 +148,8 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
   }
 
   // Calculate overall trend: compare last day with first day
-  const firstPoint = trends[0];
-  const lastPoint = trends[trends.length - 1];
+  const firstPoint = effectiveTrends[0];
+  const lastPoint = effectiveTrends[effectiveTrends.length - 1];
   const wasteChangePct =
     firstPoint.waste_percentage > 0
       ? ((lastPoint.waste_percentage - firstPoint.waste_percentage) / firstPoint.waste_percentage) * 100
@@ -58,7 +160,7 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
   let maxVal = 10;
   if (viewMode === "volume") {
     maxVal = Math.max(
-      ...trends.map((t) =>
+      ...effectiveTrends.map((t) =>
         Math.max(
           activeMetrics.production ? t.production_kg : 0,
           activeMetrics.consumption ? t.consumption_kg : 0,
@@ -70,9 +172,9 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
       10
     );
   } else if (viewMode === "waste_pct") {
-    maxVal = Math.max(...trends.map((t) => t.waste_percentage), 12);
+    maxVal = Math.max(...effectiveTrends.map((t) => t.waste_percentage), 12);
   } else {
-    maxVal = Math.max(...trends.map((t) => t.waste_per_guest_g), 150);
+    maxVal = Math.max(...effectiveTrends.map((t) => t.waste_per_guest_g), 150);
   }
 
   // Chart dimensions
@@ -84,8 +186,8 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
   const plotHeight = svgHeight - paddingY * 2;
 
   const getX = (idx: number) => {
-    if (trends.length === 1) return svgWidth / 2;
-    return paddingX + (idx / (trends.length - 1)) * plotWidth;
+    if (effectiveTrends.length === 1) return svgWidth / 2;
+    return paddingX + (idx / (effectiveTrends.length - 1)) * plotWidth;
   };
 
   const getY = (val: number) => {
@@ -94,12 +196,12 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
   };
 
   const createPath = (dataExtractor: (t: DailyTrendPoint) => number) => {
-    if (trends.length === 1) {
+    if (effectiveTrends.length === 1) {
       const x = svgWidth / 2;
-      const y = getY(dataExtractor(trends[0]));
+      const y = getY(dataExtractor(effectiveTrends[0]));
       return `M ${x - 20} ${y} L ${x + 20} ${y}`;
     }
-    return trends
+    return effectiveTrends
       .map((t, i) => `${i === 0 ? "M" : "L"} ${getX(i).toFixed(1)} ${getY(dataExtractor(t)).toFixed(1)}`)
       .join(" ");
   };
@@ -107,12 +209,12 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
   return (
     <div className="hotel-card p-6 bg-white border border-slate-200/80 space-y-5">
       {/* Header and Toggle Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
         <div>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-blue-500" />
             <h3 className="font-serif text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-              Daily Operational Trends
+              Operational Waste Trends & Timeline
             </h3>
             <span
               className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
@@ -126,42 +228,78 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Day-over-day tracking of production quantity, guest consumption, and kitchen leftovers
+            Compare production quantity, guest consumption, and kitchen leftovers by day, week, or month
           </p>
         </div>
 
-        {/* View Mode Segmented Switcher */}
-        <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
-          <button
-            onClick={() => setViewMode("volume")}
-            className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
-              viewMode === "volume"
-                ? "bg-white text-slate-900 shadow-xs border border-slate-200 font-bold"
-                : "text-slate-600 hover:text-slate-900"
-            }`}
-          >
-            Volume (Kg)
-          </button>
-          <button
-            onClick={() => setViewMode("waste_pct")}
-            className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
-              viewMode === "waste_pct"
-                ? "bg-white text-slate-900 shadow-xs border border-slate-200 font-bold"
-                : "text-slate-600 hover:text-slate-900"
-            }`}
-          >
-            Waste %
-          </button>
-          <button
-            onClick={() => setViewMode("waste_per_guest")}
-            className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
-              viewMode === "waste_per_guest"
-                ? "bg-white text-slate-900 shadow-xs border border-slate-200 font-bold"
-                : "text-slate-600 hover:text-slate-900"
-            }`}
-          >
-            Waste / Guest (g)
-          </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Granularity Switcher: Daily / Weekly / Monthly */}
+          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+            <button
+              onClick={() => setGranularity("daily")}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                granularity === "daily"
+                  ? "bg-white text-slate-900 shadow-xs border border-slate-200 font-bold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Daily
+            </button>
+            <button
+              onClick={() => setGranularity("weekly")}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                granularity === "weekly"
+                  ? "bg-white text-slate-900 shadow-xs border border-slate-200 font-bold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Weekly
+            </button>
+            <button
+              onClick={() => setGranularity("monthly")}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                granularity === "monthly"
+                  ? "bg-white text-slate-900 shadow-xs border border-slate-200 font-bold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Monthly
+            </button>
+          </div>
+
+          {/* View Mode Segmented Switcher */}
+          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
+            <button
+              onClick={() => setViewMode("volume")}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                viewMode === "volume"
+                  ? "bg-white text-slate-900 shadow-xs border border-slate-200 font-bold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Volume (Kg)
+            </button>
+            <button
+              onClick={() => setViewMode("waste_pct")}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                viewMode === "waste_pct"
+                  ? "bg-white text-slate-900 shadow-xs border border-slate-200 font-bold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Waste %
+            </button>
+            <button
+              onClick={() => setViewMode("waste_per_guest")}
+              className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
+                viewMode === "waste_per_guest"
+                  ? "bg-white text-slate-900 shadow-xs border border-slate-200 font-bold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Waste / Guest (g)
+            </button>
+          </div>
         </div>
       </div>
 
@@ -398,7 +536,7 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
             )}
 
             {/* Data Points and X Labels */}
-            {trends.map((t, i) => {
+            {effectiveTrends.map((t, i) => {
               const x = getX(i);
               let activeVal = t.waste_kg;
               if (viewMode === "waste_pct") activeVal = t.waste_percentage;
@@ -421,7 +559,7 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
                     textAnchor="middle"
                     className="text-[10px] fill-slate-500 font-medium"
                   >
-                    {t.date.slice(5)}
+                    {t.date.length > 7 ? t.date.slice(5) : t.date}
                   </text>
                 </g>
               );
@@ -434,33 +572,33 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-100 text-xs">
         <div className="p-2.5 rounded-xl bg-slate-50">
           <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
-            Avg Daily Prepared
+            {granularity === "monthly" ? "Avg Monthly Prepared" : granularity === "weekly" ? "Avg Weekly Prepared" : "Avg Daily Prepared"}
           </span>
           <span className="text-sm font-black text-slate-800">
             {formatKg(
-              trends.reduce((acc, t) => acc + t.production_kg, 0) / (trends.length || 1)
+              effectiveTrends.reduce((acc, t) => acc + t.production_kg, 0) / (effectiveTrends.length || 1)
             )}
           </span>
         </div>
 
         <div className="p-2.5 rounded-xl bg-slate-50">
           <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
-            Avg Daily Consumed
+            {granularity === "monthly" ? "Avg Monthly Consumed" : granularity === "weekly" ? "Avg Weekly Consumed" : "Avg Daily Consumed"}
           </span>
           <span className="text-sm font-black text-emerald-700">
             {formatKg(
-              trends.reduce((acc, t) => acc + t.consumption_kg, 0) / (trends.length || 1)
+              effectiveTrends.reduce((acc, t) => acc + t.consumption_kg, 0) / (effectiveTrends.length || 1)
             )}
           </span>
         </div>
 
         <div className="p-2.5 rounded-xl bg-slate-50">
           <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
-            Avg Daily Waste
+            {granularity === "monthly" ? "Avg Monthly Waste" : granularity === "weekly" ? "Avg Weekly Waste" : "Avg Daily Waste"}
           </span>
           <span className="text-sm font-black text-rose-700">
             {formatKg(
-              trends.reduce((acc, t) => acc + t.waste_kg, 0) / (trends.length || 1)
+              effectiveTrends.reduce((acc, t) => acc + t.waste_kg, 0) / (effectiveTrends.length || 1)
             )}
           </span>
         </div>
@@ -471,7 +609,7 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
           </span>
           <span className="text-sm font-black text-purple-700">
             {(
-              trends.reduce((acc, t) => acc + t.waste_per_guest_g, 0) / (trends.length || 1)
+              effectiveTrends.reduce((acc, t) => acc + t.waste_per_guest_g, 0) / (effectiveTrends.length || 1)
             ).toFixed(1)}
             g
           </span>

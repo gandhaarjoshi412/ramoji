@@ -153,9 +153,14 @@ def sync_event_to_analytics_records(db: Session, event_id: int) -> None:
             WasteScan.food_item_id == ef.food_item_id
         ).all()
 
-        waste_kg = round(sum(s.final_weight_grams for s in scans) / 1000.0, 2)
-        waste_cost = round(sum(s.final_waste_cost for s in scans), 2)
-        leftover_kg = waste_kg  # scans represent captured leftovers
+        scale_waste_kg = round(sum(float(w.net_weight_kg) for w in getattr(ef, "waste_records", [])), 2)
+        scan_waste_kg = round(sum(s.final_weight_grams for s in scans) / 1000.0, 2)
+        waste_kg = max(scale_waste_kg, scan_waste_kg)
+
+        cost_per_kg = float(ef.estimated_cost_per_kg or (food_item.default_cost_per_kg if food_item else 120.0))
+        scan_waste_cost = round(sum(s.final_waste_cost for s in scans), 2)
+        waste_cost = scan_waste_cost if scan_waste_cost > 0 else round(waste_kg * cost_per_kg, 2)
+        leftover_kg = waste_kg
 
         prep_kg = float(ef.prepared_weight_kg or 0.0)
         if prep_kg < leftover_kg:
@@ -186,7 +191,7 @@ def sync_event_to_analytics_records(db: Session, event_id: int) -> None:
                 dish_category=food_item.category or "Main Course",
                 food_type="Veg" if "veg" in food_item.name.lower() or "paneer" in food_item.name.lower() or "rice" in food_item.name.lower() else "Non-Veg",
                 uom="Kg",
-                item_cost=ef.estimated_cost_per_kg or 120.0,
+                item_cost=cost_per_kg,
                 estimated_production_kg=prep_kg,
                 actual_production_kg=prep_kg,
                 actual_consumption_kg=cons_kg,
@@ -202,21 +207,30 @@ def sync_event_to_analytics_records(db: Session, event_id: int) -> None:
                 waste_per_head_grams=round((waste_kg / pax * 1000.0), 1) if pax > 0 else 0.0,
                 consumption_per_head_grams=round((cons_kg / pax * 1000.0), 1) if pax > 0 else 0.0,
                 production_per_head_grams=round((prep_kg / pax * 1000.0), 1) if pax > 0 else 0.0,
-                data_source="Camera AI Scan",
+                data_source="Banquet Sync",
                 is_verified=all(s.human_verified for s in scans) if scans else True,
-                notes=f"Synced from event '{event.name}' ({len(scans)} vision scans)",
+                notes=f"Synced from banquet event '{event.name}'",
             )
             db.add(rec)
         else:
+            rec.hotel_id = event.hotel_id
+            rec.hotel_name = hotel_name
+            rec.event_name = event.name
+            rec.event_type = event.event_type
+            rec.event_subtype = getattr(event, "event_subtype", None) or event.event_type
+            rec.record_date = event.event_date
+            rec.pax = pax
+            rec.item_cost = cost_per_kg
             rec.actual_production_kg = prep_kg
             rec.actual_consumption_kg = cons_kg
             rec.total_leftover_kg = leftover_kg
             rec.location_buffet_return_kg = leftover_kg
             rec.total_waste_kg = waste_kg
             rec.waste_cost = waste_cost
-            rec.pax = pax
             rec.waste_percentage = round((waste_kg / prep_kg * 100.0), 2) if prep_kg > 0 else 0.0
             rec.waste_per_head_grams = round((waste_kg / pax * 1000.0), 1) if pax > 0 else 0.0
+            rec.consumption_per_head_grams = round((cons_kg / pax * 1000.0), 1) if pax > 0 else 0.0
+            rec.production_per_head_grams = round((prep_kg / pax * 1000.0), 1) if pax > 0 else 0.0
 
     db.commit()
 

@@ -26,7 +26,7 @@ class AddEventFoodPayload(BaseModel):
     estimated_cost_per_kg: float = Field(default=0.0, ge=0.0)
     notes: Optional[str] = None
 
-from app.services.event_sync import sync_event_scans_to_event_foods
+from app.services.event_sync import sync_event_scans_to_event_foods, sync_event_to_analytics_records
 
 def build_event_food_response(ef: EventFood) -> EventFoodResponse:
     scale_waste = sum(float(w.net_weight_kg) for w in ef.waste_records)
@@ -171,6 +171,10 @@ def add_event_food(
         )
         .first()
     )
+    try:
+        sync_event_to_analytics_records(db, event_id)
+    except Exception:
+        pass
     return build_event_food_response(ef)
 
 @router.put("/{event_food_id}", response_model=EventFoodResponse)
@@ -198,6 +202,10 @@ def update_event_food(
 
     db.commit()
     db.refresh(ef)
+    try:
+        sync_event_to_analytics_records(db, event_id)
+    except Exception:
+        pass
     return build_event_food_response(ef)
 
 @router.delete("/{event_food_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -223,4 +231,8 @@ def delete_event_food(
 
     db.delete(ef)
     db.commit()
+    try:
+        sync_event_to_analytics_records(db, event_id)
+    except Exception:
+        pass
     return None

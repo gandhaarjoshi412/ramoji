@@ -23,7 +23,12 @@ class EventFoodResponse(BaseModel):
     food_item_name: str
     food_item_category: str
     food_item_unit: str = "kg"
+    food_type: Optional[str] = "Veg"
+    session: Optional[str] = None
     prepared_weight_kg: float
+    consumed_weight_kg: float = 0.0
+    leftover_weight_kg: float = 0.0
+    reused_weight_kg: float = 0.0
     estimated_cost_per_kg: float
     notes: Optional[str] = None
     
@@ -34,3 +39,4 @@ class EventFoodResponse(BaseModel):
     waste_records: List[WasteRecordResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
+

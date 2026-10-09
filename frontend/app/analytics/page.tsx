@@ -328,6 +328,32 @@ export default function AnalyticsPage() {
           {/* TAB 1: OVERVIEW */}
           {activeTab === "overview" && (
             <div className="space-y-6">
+              {/* Sensible Empty State when active date filter has no recorded activity (Part 1 Problem B) */}
+              {data.raw_records.length === 0 && (
+                <div className="p-5 rounded-2xl bg-amber-50/80 border border-amber-200 text-amber-900 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+                  <div className="flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center shrink-0 text-amber-700 mt-0.5">
+                      <CalendarDays className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-serif text-sm font-bold text-amber-950">
+                        No Operational Records for {data.filter_context?.date_display || "Selected Period"}
+                      </h4>
+                      <p className="text-xs text-amber-800/90 mt-0.5 leading-relaxed">
+                        No banquet services, buffet returns, or waste scans were recorded under this date filter. Headline cards below display 0 kg because no records exist for this period.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleFilterChange({ date_preset: "all", start_date: undefined, end_date: undefined })}
+                    className="px-4 py-2 bg-amber-900 hover:bg-amber-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all shrink-0 cursor-pointer"
+                  >
+                    Switch to All Dates
+                  </button>
+                </div>
+              )}
+
               {/* Core Headline KPI Cards */}
               <ExecutiveKpiGrid kpis={data.kpis} />
 
@@ -407,10 +433,14 @@ export default function AnalyticsPage() {
             />
           )}
 
-          {/* TAB 3: EVENTS */}
+          {/* TAB 3: EVENTS (Part 1 Problem A: Synchronized with active date and event type filters) */}
           {activeTab === "events" && (
             <EventsSubtab
               selectedHotel={filters.hotel || "all"}
+              datePreset={filters.date_preset}
+              startDate={filters.start_date}
+              endDate={filters.end_date}
+              selectedEventType={filters.event_type}
               onSelectEvent={(evId) => handleFilterChange({ event_id: evId })}
             />
           )}

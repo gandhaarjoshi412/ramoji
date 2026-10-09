@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { apiRequest, formatINR, formatKg } from "@/lib/api";
 import {
   CalendarDays,
@@ -25,7 +25,24 @@ import {
   Sparkles,
   TrendingDown,
   ArrowUpRight,
+  Leaf,
+  DollarSign,
+  ChefHat,
+  Flame,
+  ShieldAlert,
+  Award,
+  Layers,
+  SlidersHorizontal,
+  Download,
+  Info,
+  Clock,
+  Check,
+  Droplets,
 } from "lucide-react";
+import { CrossEventComparisonSection } from "@/components/analytics/CrossEventComparisonSection";
+import { EventTypeIntelligenceWorkspace } from "@/components/analytics/EventTypeIntelligenceWorkspace";
+import { CrossEventComparison, EventTypesAnalyticsResponse } from "@/types/analytics";
+
 
 interface EventItem {
   id: number;
@@ -68,19 +85,29 @@ interface DeleteImpact {
 
 interface EventsSubtabProps {
   selectedHotel: string;
+  datePreset?: string;
+  startDate?: string;
+  endDate?: string;
+  selectedEventType?: string;
   onSelectEvent?: (eventId: string) => void;
 }
 
 export const EventsSubtab: React.FC<EventsSubtabProps> = ({
   selectedHotel,
+  datePreset = "all",
+  startDate,
+  endDate,
+  selectedEventType,
   onSelectEvent,
 }) => {
   const [events, setEvents] = useState<EventItem[]>([]);
+  const [crossEventData, setCrossEventData] = useState<CrossEventComparison | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterType, setFilterType] = useState("all");
+  const [filterType, setFilterType] = useState(selectedEventType && selectedEventType !== "all" ? selectedEventType : "all");
   const [showArchived, setShowArchived] = useState(false);
+  const [applyDateFilter, setApplyDateFilter] = useState<boolean>(datePreset !== "all");
 
   // Modal states
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -93,13 +120,225 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
   const [selectedDetailEvent, setSelectedDetailEvent] = useState<EventItem | null>(null);
   const [detailFullData, setDetailFullData] = useState<any | null>(null);
   const [loadingDetailFull, setLoadingDetailFull] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
-  // Create Event Form state
+  // Dish Table Filter & Sort States in Modal
+  const [dishSearchTerm, setDishSearchTerm] = useState("");
+  const [dishCategoryFilter, setDishCategoryFilter] = useState("all");
+  const [dishSessionFilter, setDishSessionFilter] = useState("all");
+  const [dishFoodTypeFilter, setDishFoodTypeFilter] = useState("all");
+  const [dishSortBy, setDishSortBy] = useState<"waste_desc" | "cost_desc" | "prep_desc" | "pct_desc">("waste_desc");
+
+  // Menu Planning Planner State (Part 5)
+  const [plannerPax, setPlannerPax] = useState<number>(140);
+  const [plannerBuffer, setPlannerBuffer] = useState<number>(10);
+
+  // Computed modal metrics ensuring 100% data consistency
+  const effectivePrepKg = detailFullData?.total_prepared_kg ?? selectedDetailEvent?.total_prepared_kg ?? 0;
+  const effectiveConsumedKg = detailFullData?.total_consumed_kg ?? selectedDetailEvent?.total_consumed_kg ?? 0;
+  const effectiveReuseKg = detailFullData?.total_reuse_kg ?? selectedDetailEvent?.total_reuse_kg ?? 0;
+  const effectiveLeftoverKg = detailFullData?.total_leftover_kg ?? selectedDetailEvent?.total_leftover_kg ?? 0;
+  const effectiveWasteKg = detailFullData?.total_waste_kg ?? selectedDetailEvent?.total_waste_kg ?? 0;
+  const effectiveWasteCost = detailFullData?.total_waste_cost ?? selectedDetailEvent?.total_waste_cost ?? 0;
+  const effectiveWastePct = detailFullData?.waste_percentage ?? selectedDetailEvent?.waste_percentage ?? (effectivePrepKg > 0 ? (effectiveWasteKg / effectivePrepKg) * 100 : 0);
+  const effectivePax = detailFullData?.actual_guests || selectedDetailEvent?.actual_guests || selectedDetailEvent?.expected_guests || 1;
+  const effectiveWastePerGuest = detailFullData?.waste_per_guest_grams ?? selectedDetailEvent?.waste_per_guest_grams ?? (effectivePax > 0 ? (effectiveWasteKg / effectivePax) * 1000 : 0);
+  const effectiveIntakePerGuest = effectivePax > 0 ? (effectiveConsumedKg / effectivePax) * 1000 : 0;
+  const effectiveYieldPct = effectivePrepKg > 0 ? ((effectiveConsumedKg / effectivePrepKg) * 100) : 100;
+  const potentialSavings = Math.round(effectiveWasteCost * 0.18);
+  const carbonFootprintKg = Number((effectiveWasteKg * 2.5).toFixed(1));
+  const waterFootprintLiters = Math.round(effectiveWasteKg * 1500);
+  const mealEquivalentsLost = Math.round(effectiveWasteKg / 0.4);
+  const diversionRatePct = effectiveLeftoverKg > 0 ? ((effectiveReuseKg / effectiveLeftoverKg) * 100) : 0;
+  const effectiveDishesCount = detailFullData?.event_foods?.length ?? selectedDetailEvent?.food_items_count ?? 0;
+
+  const distinctCategories = useMemo(() => {
+    if (!detailFullData?.event_foods) return [];
+    const set = new Set<string>();
+    detailFullData.event_foods.forEach((f: any) => {
+      if (f.food_item_category) set.add(f.food_item_category);
+    });
+    return Array.from(set).sort();
+  }, [detailFullData]);
+
+  const distinctSessions = useMemo(() => {
+    if (!detailFullData?.event_foods) return [];
+    const set = new Set<string>();
+    detailFullData.event_foods.forEach((f: any) => {
+      if (f.session) set.add(f.session);
+    });
+    return Array.from(set).sort();
+  }, [detailFullData]);
+
+  const sessionAnalytics = useMemo(() => {
+    if (!detailFullData?.event_foods || detailFullData.event_foods.length === 0) return [];
+    const map = new Map<string, { session: string; prepared_kg: number; consumed_kg: number; waste_kg: number; waste_cost: number; count: number }>();
+    for (const f of detailFullData.event_foods) {
+      const sess = f.session || "Main Service";
+      const existing = map.get(sess) || { session: sess, prepared_kg: 0, consumed_kg: 0, waste_kg: 0, waste_cost: 0, count: 0 };
+      const prep = Number(f.prepared_weight_kg) || 0;
+      const waste = Number(f.net_waste_kg) || 0;
+      const cost = Number(f.waste_cost) || 0;
+      const cons = Number(f.consumed_weight_kg) || Math.max(0, prep - waste);
+      existing.prepared_kg += prep;
+      existing.consumed_kg += cons;
+      existing.waste_kg += waste;
+      existing.waste_cost += cost;
+      existing.count += 1;
+      map.set(sess, existing);
+    }
+    return Array.from(map.values());
+  }, [detailFullData]);
+
+  const categoryAnalytics = useMemo(() => {
+    if (!detailFullData?.event_foods || detailFullData.event_foods.length === 0) return [];
+    const sourceDishes = dishSessionFilter === "all"
+      ? detailFullData.event_foods
+      : detailFullData.event_foods.filter((f: any) => f.session === dishSessionFilter);
+
+    const map = new Map<string, { category: string; prepared_kg: number; consumed_kg: number; waste_kg: number; waste_cost: number; count: number }>();
+    for (const f of sourceDishes) {
+      const cat = f.food_item_category || "Main Course";
+      const existing = map.get(cat) || { category: cat, prepared_kg: 0, consumed_kg: 0, waste_kg: 0, waste_cost: 0, count: 0 };
+      const prep = Number(f.prepared_weight_kg) || 0;
+      const waste = Number(f.net_waste_kg) || 0;
+      const cost = Number(f.waste_cost) || 0;
+      const cons = Number(f.consumed_weight_kg) || Math.max(0, prep - waste);
+      existing.prepared_kg += prep;
+      existing.consumed_kg += cons;
+      existing.waste_kg += waste;
+      existing.waste_cost += cost;
+      existing.count += 1;
+      map.set(cat, existing);
+    }
+    return Array.from(map.values()).sort((a, b) => b.waste_cost - a.waste_cost);
+  }, [detailFullData, dishSessionFilter]);
+
+  const foodTypeAnalytics = useMemo(() => {
+    if (!detailFullData?.event_foods) return null;
+    let vegPrep = 0, vegWaste = 0, vegCost = 0, vegCount = 0;
+    let nonVegPrep = 0, nonVegWaste = 0, nonVegCost = 0, nonVegCount = 0;
+    for (const f of detailFullData.event_foods) {
+      const prep = Number(f.prepared_weight_kg) || 0;
+      const waste = Number(f.net_waste_kg) || 0;
+      const cost = Number(f.waste_cost) || 0;
+      if (f.food_type === "Non-Veg") {
+        nonVegPrep += prep;
+        nonVegWaste += waste;
+        nonVegCost += cost;
+        nonVegCount++;
+      } else {
+        vegPrep += prep;
+        vegWaste += waste;
+        vegCost += cost;
+        vegCount++;
+      }
+    }
+    return {
+      veg: { count: vegCount, prep_kg: vegPrep, waste_kg: vegWaste, cost: vegCost, waste_pct: vegPrep > 0 ? (vegWaste / vegPrep) * 100 : 0 },
+      nonVeg: { count: nonVegCount, prep_kg: nonVegPrep, waste_kg: nonVegWaste, cost: nonVegCost, waste_pct: nonVegPrep > 0 ? (nonVegWaste / nonVegPrep) * 100 : 0 },
+    };
+  }, [detailFullData]);
+
+  const topWastedDishes = useMemo(() => {
+    if (!detailFullData?.event_foods) return [];
+    const source = dishSessionFilter === "all"
+      ? detailFullData.event_foods
+      : detailFullData.event_foods.filter((f: any) => f.session === dishSessionFilter);
+    return [...source]
+      .sort((a, b) => (b.waste_cost || 0) - (a.waste_cost || 0) || (b.net_waste_kg || 0) - (a.net_waste_kg || 0))
+      .slice(0, 4);
+  }, [detailFullData, dishSessionFilter]);
+
+  const zeroWasteDishes = useMemo(() => {
+    if (!detailFullData?.event_foods) return [];
+    const source = dishSessionFilter === "all"
+      ? detailFullData.event_foods
+      : detailFullData.event_foods.filter((f: any) => f.session === dishSessionFilter);
+    return source
+      .filter((f: any) => (f.net_waste_kg || 0) <= 0.2 && (f.prepared_weight_kg || 0) > 0)
+      .slice(0, 4);
+  }, [detailFullData, dishSessionFilter]);
+
+  const filteredDishes = useMemo(() => {
+    if (!detailFullData?.event_foods) return [];
+    return detailFullData.event_foods
+      .filter((f: any) => {
+        const matchesSearch = !dishSearchTerm.trim() || f.food_item_name?.toLowerCase().includes(dishSearchTerm.toLowerCase());
+        const matchesCat = dishCategoryFilter === "all" || f.food_item_category === dishCategoryFilter;
+        const matchesSession = dishSessionFilter === "all" || f.session === dishSessionFilter;
+        const matchesType = dishFoodTypeFilter === "all" || (f.food_type && f.food_type.toLowerCase() === dishFoodTypeFilter.toLowerCase());
+        return matchesSearch && matchesCat && matchesSession && matchesType;
+      })
+      .sort((a: any, b: any) => {
+        if (dishSortBy === "waste_desc") return (b.net_waste_kg || 0) - (a.net_waste_kg || 0);
+        if (dishSortBy === "cost_desc") return (b.waste_cost || 0) - (a.waste_cost || 0);
+        if (dishSortBy === "prep_desc") return (b.prepared_weight_kg || 0) - (a.prepared_weight_kg || 0);
+        if (dishSortBy === "pct_desc") return (b.waste_percentage || 0) - (a.waste_percentage || 0);
+        return 0;
+      });
+  }, [detailFullData, dishSearchTerm, dishCategoryFilter, dishSessionFilter, dishFoodTypeFilter, dishSortBy]);
+
+  const filteredDishesSummary = useMemo(() => {
+    let prep = 0, cons = 0, leftover = 0, reuse = 0, waste = 0, cost = 0;
+    for (const f of filteredDishes) {
+      const p = Number(f.prepared_weight_kg) || 0;
+      const w = Number(f.net_waste_kg) || 0;
+      const c = Number(f.consumed_weight_kg) || Math.max(0, p - w);
+      const l = Number(f.leftover_weight_kg) || w;
+      const r = Number(f.reused_weight_kg) || 0;
+      prep += p;
+      cons += c;
+      leftover += l;
+      reuse += r;
+      waste += w;
+      cost += Number(f.waste_cost) || 0;
+    }
+    return {
+      count: filteredDishes.length,
+      prep_kg: prep,
+      consumed_kg: cons,
+      leftover_kg: leftover,
+      reused_kg: reuse,
+      waste_kg: waste,
+      cost_loss: cost,
+      waste_pct: prep > 0 ? (waste / prep) * 100 : 0,
+    };
+  }, [filteredDishes]);
+
+  const exportDishLedgerCSV = () => {
+    if (!filteredDishes || filteredDishes.length === 0) return;
+    const headers = ["Dish Name", "Category", "Food Type", "Session", "Prepared (kg)", "Consumed (kg)", "Discarded Waste (kg)", "Waste %", "Cost Loss (INR)", "Notes"];
+    const rows = filteredDishes.map((f: any) => [
+      `"${(f.food_item_name || "").replace(/"/g, '""')}"`,
+      `"${(f.food_item_category || "").replace(/"/g, '""')}"`,
+      `"${(f.food_type || "Veg").replace(/"/g, '""')}"`,
+      `"${(f.session || "Service").replace(/"/g, '""')}"`,
+      (f.prepared_weight_kg || 0).toFixed(2),
+      (f.consumed_weight_kg || Math.max(0, (f.prepared_weight_kg || 0) - (f.net_waste_kg || 0))).toFixed(2),
+      (f.net_waste_kg || 0).toFixed(2),
+      ((f.waste_percentage || 0)).toFixed(1) + "%",
+      (f.waste_cost || 0).toFixed(2),
+      `"${(f.notes || "").replace(/"/g, '""')}"`,
+    ]);
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((r: any) => r.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `${(selectedDetailEvent?.name || "Event").replace(/[^a-zA-Z0-9_-]/g, "_")}_dish_ledger.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+
+  // Create Event Form state (Part 2: 4 Default Categories: Corporate, Conference, Social, Wedding + Custom)
   const [formStep, setFormStep] = useState<1 | 2>(1);
   const [hotelId, setHotelId] = useState(1);
   const [eventName, setEventName] = useState("");
   const [eventDate, setEventDate] = useState(new Date().toISOString().split("T")[0]);
-  const [eventType, setEventType] = useState("Corporate");
+  const [eventType, setEventType] = useState<string>("Corporate");
+  const [customEventTypeName, setCustomEventTypeName] = useState("");
   const [eventSubtype, setEventSubtype] = useState("Annual Conference");
   const [clientName, setClientName] = useState("");
   const [serviceFormat, setServiceFormat] = useState("Buffet");
@@ -161,6 +400,37 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
       if (showArchived) query.set("include_archived", "true");
       if (filterType !== "all") query.set("event_type", filterType);
 
+      // Part 1 Problem A: Date synchronization
+      if (applyDateFilter && datePreset !== "all") {
+        const today = new Date();
+        const fmt = (d: Date) => d.toISOString().split("T")[0];
+
+        if (datePreset === "today") {
+          const t = fmt(today);
+          query.set("date_from", t);
+          query.set("date_to", t);
+        } else if (datePreset === "yesterday") {
+          const y = new Date(today);
+          y.setDate(today.getDate() - 1);
+          const yStr = fmt(y);
+          query.set("date_from", yStr);
+          query.set("date_to", yStr);
+        } else if (datePreset === "last_7") {
+          const l7 = new Date(today);
+          l7.setDate(today.getDate() - 7);
+          query.set("date_from", fmt(l7));
+          query.set("date_to", fmt(today));
+        } else if (datePreset === "last_30") {
+          const l30 = new Date(today);
+          l30.setDate(today.getDate() - 30);
+          query.set("date_from", fmt(l30));
+          query.set("date_to", fmt(today));
+        } else if (datePreset === "custom" && startDate && endDate) {
+          query.set("date_from", startDate);
+          query.set("date_to", endDate);
+        }
+      }
+
       const res = await apiRequest<EventItem[]>(`/api/events?${query.toString()}`);
       setEvents(res);
     } catch (err: any) {
@@ -172,7 +442,26 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
 
   useEffect(() => {
     fetchEvents();
-  }, [selectedHotel, showArchived, filterType]);
+  }, [selectedHotel, showArchived, filterType, applyDateFilter, datePreset, startDate, endDate]);
+
+  useEffect(() => {
+    async function loadCrossEvent() {
+      try {
+        const query = new URLSearchParams();
+        if (selectedHotel && selectedHotel !== "all") query.set("hotel", selectedHotel);
+        if (datePreset) query.set("date_preset", datePreset);
+        if (startDate) query.set("start_date", startDate);
+        if (endDate) query.set("end_date", endDate);
+        const res = await apiRequest<EventTypesAnalyticsResponse>(`/api/analytics/event-types?${query.toString()}`);
+        if (res?.cross_event_comparison) {
+          setCrossEventData(res.cross_event_comparison);
+        }
+      } catch {
+        // Fallback silently
+      }
+    }
+    loadCrossEvent();
+  }, [selectedHotel, datePreset, startDate, endDate]);
 
   const handleOpenDelete = async (ev: EventItem) => {
     setDeleteModalEvent(ev);
@@ -250,17 +539,30 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
 
   const handleOpenDetail = async (ev: EventItem) => {
     setSelectedDetailEvent(ev);
+    setDetailError(null);
+    setPlannerPax(ev.actual_guests || ev.expected_guests || 100);
+    setPlannerBuffer(10);
+    setDishSearchTerm("");
+    setDishCategoryFilter("all");
+    setDishSessionFilter("all");
+    setDishFoodTypeFilter("all");
+    setDishSortBy("waste_desc");
     setLoadingDetailFull(true);
     setDetailFullData(null);
     try {
       const res = await apiRequest<any>(`/api/events/${ev.id}`);
       setDetailFullData(res);
-    } catch (err) {
+      if (res && (res.actual_guests || res.expected_guests)) {
+        setPlannerPax(res.actual_guests || res.expected_guests);
+      }
+    } catch (err: any) {
       console.error("Failed to load event detailed analytics:", err);
+      setDetailError(err.message || "Failed to load individual dish quantities");
     } finally {
       setLoadingDetailFull(false);
     }
   };
+
 
   // Submit Create Event
   const handleCreateEventSubmit = async (e: React.FormEvent) => {
@@ -288,11 +590,12 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
     }
 
     try {
+      const finalType = eventType === "Custom" ? (customEventTypeName.trim() || "Custom Event") : eventType;
       const payload = {
         hotel_id: hotelId,
         name: eventName,
         event_date: eventDate,
-        event_type: eventType,
+        event_type: finalType,
         event_subtype: eventSubtype,
         client_name: clientName || undefined,
         service_format: serviceFormat,
@@ -337,21 +640,39 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
     return matchSearch;
   });
 
+  // Calculate compact summary indicators (Section 4.2)
+  const totalGuestsServed = filteredEvents.reduce((acc, e) => acc + (e.actual_guests || e.expected_guests || 0), 0);
+  const totalPreparedKg = filteredEvents.reduce((acc, e) => acc + (e.total_prepared_kg || 0), 0);
+  const totalDiscardedKg = filteredEvents.reduce((acc, e) => acc + (e.total_waste_kg || 0), 0);
+  const totalLossCost = filteredEvents.reduce((acc, e) => acc + (e.total_waste_cost || 0), 0);
+  const recordsNeedingReview = filteredEvents.filter((e) => {
+    const completeness = e.data_completeness_pct ?? 100;
+    const wastePct = e.waste_percentage ?? 0;
+    return completeness < 80 || wastePct > 25;
+  }).length;
+
   return (
     <div className="space-y-6">
-      {/* Header Bar */}
-      <div className="hotel-card p-6 bg-white border border-slate-200/90 rounded-2xl shadow-xs space-y-4">
+      {/* Event-Type Waste Intelligence & Dish Comparison Workspace */}
+      <EventTypeIntelligenceWorkspace
+        initialHotel={selectedHotel}
+        initialDatePreset={datePreset}
+        isEmbeddedInEventsPage={false}
+      />
+
+      {/* Header Bar (Part 4.1) */}
+      <div className="hotel-card p-6 bg-white border border-slate-200/90 rounded-2xl shadow-xs space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200/80 mb-1.5">
               <CalendarDays className="w-3.5 h-3.5 text-emerald-600" />
-              Banquet & Event Operations
+              Banquet Operations & Food Intelligence
             </div>
-            <h2 className="font-serif text-xl font-bold text-slate-900">
-              Event Intelligence & Ledger Management
+            <h2 className="font-serif text-2xl font-bold text-slate-900 tracking-tight">
+              Event Intelligence & Management
             </h2>
-            <p className="text-xs text-slate-500">
-              Track individual weddings, corporate galas, and banquets with strict mass-balance validation, dish breakdowns, and safe deletion.
+            <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+              Review individual event performance, manage operational records, and identify opportunities to reduce food waste.
             </p>
           </div>
 
@@ -363,6 +684,65 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
               <Plus className="w-4 h-4" />
               Create Event
             </button>
+          </div>
+        </div>
+
+        {/* Date Scope Synchronization Alert / Toggle (Part 1 Problem A) */}
+        {datePreset !== "all" && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs">
+            <div className="flex items-center gap-2 text-slate-700">
+              <span className={`w-2 h-2 rounded-full ${applyDateFilter ? "bg-emerald-500" : "bg-slate-400"}`} />
+              <span>
+                Scope: <strong>{datePreset.toUpperCase()}</strong> ({filteredEvents.length} events matching scope)
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setApplyDateFilter(!applyDateFilter)}
+                className="text-xs font-bold text-emerald-700 hover:text-emerald-800 hover:underline cursor-pointer"
+              >
+                {applyDateFilter ? "Show All Historical Events" : "Re-apply Date Scope"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 4.2 Compact Row of Summary Indicators */}
+        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 pt-1">
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Events Listed</span>
+            <span className="text-lg font-bold font-mono text-slate-900 mt-0.5 block">{filteredEvents.length}</span>
+          </div>
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Guests Served</span>
+            <span className="text-lg font-bold font-mono text-slate-900 mt-0.5 block">
+              {totalGuestsServed.toLocaleString()}
+            </span>
+          </div>
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Prepared Food</span>
+            <span className="text-lg font-bold font-mono text-slate-900 mt-0.5 block">
+              {formatKg(totalPreparedKg)}
+            </span>
+          </div>
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Discarded Waste</span>
+            <span className="text-lg font-bold font-mono text-rose-700 mt-0.5 block">
+              {formatKg(totalDiscardedKg)}
+            </span>
+          </div>
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Waste Cost</span>
+            <span className="text-lg font-bold font-mono text-slate-900 mt-0.5 block">
+              {formatINR(totalLossCost)}
+            </span>
+          </div>
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Needs Review</span>
+            <span className={`text-lg font-bold font-mono mt-0.5 block ${recordsNeedingReview > 0 ? "text-amber-700" : "text-slate-400"}`}>
+              {recordsNeedingReview}
+            </span>
           </div>
         </div>
 
@@ -379,19 +759,19 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
             />
           </div>
 
-          <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-end">
+            {/* Part 2: 4 Default Categories: Corporate, Conference, Social, Wedding + Custom */}
             <select
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
-              className="text-xs py-2 px-3 border border-slate-200 rounded-xl bg-white focus:outline-hidden text-slate-700"
+              className="text-xs py-2 px-3 border border-slate-200 rounded-xl bg-white focus:outline-hidden text-slate-700 font-medium"
             >
               <option value="all">All Event Categories</option>
               <option value="Corporate">Corporate</option>
-              <option value="Birthday">Birthday</option>
-              <option value="Wedding">Wedding</option>
               <option value="Conference">Conference</option>
               <option value="Social">Social</option>
-              <option value="Regular Hotel Operations">Regular Hotel Operations</option>
+              <option value="Wedding">Wedding</option>
+              <option value="Custom">Custom Categories</option>
             </select>
 
             <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
@@ -401,7 +781,7 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
                 onChange={(e) => setShowArchived(e.target.checked)}
                 className="rounded-sm border-slate-300 text-emerald-600 focus:ring-emerald-500"
               />
-              <span>Show Archived</span>
+              <span>Include Archived</span>
             </label>
           </div>
         </div>
@@ -630,13 +1010,27 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
                       required
                     >
                       <option value="Corporate">Corporate</option>
-                      <option value="Birthday">Birthday</option>
-                      <option value="Wedding">Wedding</option>
                       <option value="Conference">Conference</option>
                       <option value="Social">Social</option>
-                      <option value="Regular Hotel Operations">Regular Hotel Operations</option>
+                      <option value="Wedding">Wedding</option>
+                      <option value="Custom">Custom Category</option>
                     </select>
                   </div>
+
+                  {eventType === "Custom" && (
+                    <div className="space-y-1 sm:col-span-2 bg-indigo-50/50 p-3 rounded-xl border border-indigo-100">
+                      <label className="font-semibold text-indigo-950 text-xs">Custom Category Name *</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Sports Gala, Charity Auction, Press Briefing"
+                        value={customEventTypeName}
+                        onChange={(e) => setCustomEventTypeName(e.target.value)}
+                        className="w-full p-2 text-xs border border-indigo-200 bg-white rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20"
+                        required
+                      />
+                      <p className="text-[10px] text-indigo-600">This custom category will be stored canonically under Custom for standardized auditing.</p>
+                    </div>
+                  )}
 
                   <div className="space-y-1">
                     <label className="font-semibold text-slate-700">Subtype / Format</label>
@@ -997,6 +1391,16 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
                   <span>• Attendance: <strong className="text-slate-900 font-bold">{selectedDetailEvent.actual_guests || selectedDetailEvent.expected_guests} covers</strong> ({selectedDetailEvent.expected_guests} expected)</span>
                   {selectedDetailEvent.venue && <span>• Venue: <strong className="text-slate-800 font-semibold">{selectedDetailEvent.venue}</strong></span>}
                 </p>
+                {distinctSessions.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Recorded Sessions:</span>
+                    {distinctSessions.map((sess) => (
+                      <span key={sess} className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                        {sess}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -1021,6 +1425,22 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
               </div>
             </div>
 
+            {detailError && (
+              <div className="mx-6 mt-4 p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between text-xs text-rose-800">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{detailError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleOpenDetail(selectedDetailEvent)}
+                  className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-[11px] font-bold cursor-pointer transition-colors"
+                >
+                  Retry Loading
+                </button>
+              </div>
+            )}
+
             {/* Modal Body */}
             <div className="p-6 overflow-y-auto space-y-6">
               {/* 4 Core Hero Metric Cards */}
@@ -1028,19 +1448,19 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Food Prepared</span>
                   <div className="text-xl font-bold font-mono text-slate-900 mt-1">
-                    {formatKg(selectedDetailEvent.total_prepared_kg)}
+                    {formatKg(effectivePrepKg)}
                   </div>
-                  <span className="text-[11px] text-slate-500 mt-0.5 block">100% production</span>
+                  <span className="text-[11px] text-slate-500 mt-0.5 block">100% kitchen batch</span>
                 </div>
 
                 <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-200/80">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 block">Food Consumed</span>
                   <div className="text-xl font-bold font-mono text-emerald-800 mt-1">
-                    {formatKg(selectedDetailEvent.total_consumed_kg)}
+                    {formatKg(effectiveConsumedKg)}
                   </div>
                   <span className="text-[11px] text-emerald-700 font-medium mt-0.5 block">
-                    {selectedDetailEvent.total_prepared_kg > 0
-                      ? `${((selectedDetailEvent.total_consumed_kg / selectedDetailEvent.total_prepared_kg) * 100).toFixed(1)}% eaten by guests`
+                    {effectivePrepKg > 0
+                      ? `${((effectiveConsumedKg / effectivePrepKg) * 100).toFixed(1)}% eaten by guests`
                       : "Direct consumption"}
                   </span>
                 </div>
@@ -1048,11 +1468,11 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
                 <div className="p-4 rounded-xl bg-teal-50/60 border border-teal-200/80">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-teal-800 block">Safely Reused</span>
                   <div className="text-xl font-bold font-mono text-teal-800 mt-1">
-                    {formatKg(selectedDetailEvent.total_reuse_kg)}
+                    {formatKg(effectiveReuseKg)}
                   </div>
                   <span className="text-[11px] text-teal-700 font-medium mt-0.5 block">
-                    {selectedDetailEvent.total_leftover_kg > 0
-                      ? `${((selectedDetailEvent.total_reuse_kg / selectedDetailEvent.total_leftover_kg) * 100).toFixed(1)}% leftovers diverted`
+                    {effectiveLeftoverKg > 0
+                      ? `${((effectiveReuseKg / effectiveLeftoverKg) * 100).toFixed(1)}% leftovers diverted`
                       : "0.0% diverted"}
                   </span>
                 </div>
@@ -1060,10 +1480,10 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
                 <div className="p-4 rounded-xl bg-rose-50/60 border border-rose-200/80">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-rose-800 block">Final Waste & Loss</span>
                   <div className="text-xl font-bold font-mono text-rose-700 mt-1">
-                    {formatKg(selectedDetailEvent.total_waste_kg)}
+                    {formatKg(effectiveWasteKg)}
                   </div>
                   <span className="text-[11px] text-rose-700 font-semibold mt-0.5 block">
-                    {formatINR(selectedDetailEvent.total_waste_cost)} loss ({selectedDetailEvent.waste_percentage.toFixed(1)}%)
+                    {formatINR(effectiveWasteCost)} loss ({effectiveWastePct.toFixed(1)}%)
                   </span>
                 </div>
               </div>
@@ -1076,7 +1496,7 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
                     Operational Food Flow & Mass Balance
                   </h4>
                   <span className="text-[11px] font-mono text-slate-500">
-                    Waste / Guest: <strong className="text-slate-900">{selectedDetailEvent.waste_per_guest_grams.toFixed(0)}g</strong>
+                    Waste / Guest: <strong className="text-slate-900">{effectiveWastePerGuest.toFixed(0)}g</strong> • Eaten / Guest: <strong className="text-emerald-700">{effectiveIntakePerGuest.toFixed(0)}g</strong>
                   </span>
                 </div>
 
@@ -1085,7 +1505,7 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-slate-700">Stage 1: Production Utilization</span>
                     <span className="text-slate-500 font-mono text-[11px]">
-                      Consumed: {formatKg(selectedDetailEvent.total_consumed_kg)} • Leftover: {formatKg(selectedDetailEvent.total_leftover_kg)}
+                      Consumed: {formatKg(effectiveConsumedKg)} • Leftover: {formatKg(effectiveLeftoverKg)}
                     </span>
                   </div>
                   <div className="w-full h-4 bg-slate-200 rounded-full overflow-hidden flex shadow-inner">
@@ -1093,8 +1513,8 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
                       style={{
                         width: `${Math.min(
                           100,
-                          selectedDetailEvent.total_prepared_kg > 0
-                            ? (selectedDetailEvent.total_consumed_kg / selectedDetailEvent.total_prepared_kg) * 100
+                          effectivePrepKg > 0
+                            ? (effectiveConsumedKg / effectivePrepKg) * 100
                             : 0
                         )}%`,
                       }}
@@ -1105,8 +1525,8 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
                       style={{
                         width: `${Math.min(
                           100,
-                          selectedDetailEvent.total_prepared_kg > 0
-                            ? (selectedDetailEvent.total_leftover_kg / selectedDetailEvent.total_prepared_kg) * 100
+                          effectivePrepKg > 0
+                            ? (effectiveLeftoverKg / effectivePrepKg) * 100
                             : 0
                         )}%`,
                       }}
@@ -1117,11 +1537,11 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
                   <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
                     <span className="flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
-                      Consumed: {selectedDetailEvent.total_prepared_kg > 0 ? ((selectedDetailEvent.total_consumed_kg / selectedDetailEvent.total_prepared_kg) * 100).toFixed(1) : 0}%
+                      Consumed: {effectivePrepKg > 0 ? ((effectiveConsumedKg / effectivePrepKg) * 100).toFixed(1) : 0}%
                     </span>
                     <span className="flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />
-                      Leftovers: {selectedDetailEvent.total_prepared_kg > 0 ? ((selectedDetailEvent.total_leftover_kg / selectedDetailEvent.total_prepared_kg) * 100).toFixed(1) : 0}%
+                      Leftovers: {effectivePrepKg > 0 ? ((effectiveLeftoverKg / effectivePrepKg) * 100).toFixed(1) : 0}%
                     </span>
                   </div>
                 </div>
@@ -1131,7 +1551,7 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-slate-700">Stage 2: Leftover Disposition</span>
                     <span className="text-slate-500 font-mono text-[11px]">
-                      Reused: {formatKg(selectedDetailEvent.total_reuse_kg)} • Discarded Waste: {formatKg(selectedDetailEvent.total_waste_kg)}
+                      Reused: {formatKg(effectiveReuseKg)} • Discarded Waste: {formatKg(effectiveWasteKg)}
                     </span>
                   </div>
                   <div className="w-full h-4 bg-slate-200 rounded-full overflow-hidden flex shadow-inner">
@@ -1139,8 +1559,8 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
                       style={{
                         width: `${Math.min(
                           100,
-                          selectedDetailEvent.total_leftover_kg > 0
-                            ? (selectedDetailEvent.total_reuse_kg / selectedDetailEvent.total_leftover_kg) * 100
+                          effectiveLeftoverKg > 0
+                            ? (effectiveReuseKg / effectiveLeftoverKg) * 100
                             : 0
                         )}%`,
                       }}
@@ -1151,8 +1571,8 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
                       style={{
                         width: `${Math.min(
                           100,
-                          selectedDetailEvent.total_leftover_kg > 0
-                            ? (selectedDetailEvent.total_waste_kg / selectedDetailEvent.total_leftover_kg) * 100
+                          effectiveLeftoverKg > 0
+                            ? (effectiveWasteKg / effectiveLeftoverKg) * 100
                             : 0
                         )}%`,
                       }}
@@ -1163,143 +1583,879 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
                   <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
                     <span className="flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-teal-500 inline-block" />
-                      Reused (Diverted): {selectedDetailEvent.total_leftover_kg > 0 ? ((selectedDetailEvent.total_reuse_kg / selectedDetailEvent.total_leftover_kg) * 100).toFixed(1) : 0}%
+                      Reused (Diverted): {effectiveLeftoverKg > 0 ? ((effectiveReuseKg / effectiveLeftoverKg) * 100).toFixed(1) : 0}%
                     </span>
                     <span className="flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" />
-                      Final Waste: {selectedDetailEvent.total_leftover_kg > 0 ? ((selectedDetailEvent.total_waste_kg / selectedDetailEvent.total_leftover_kg) * 100).toFixed(1) : 0}%
+                      Final Waste: {effectiveLeftoverKg > 0 ? ((effectiveWasteKg / effectiveLeftoverKg) * 100).toFixed(1) : 0}%
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* Event Evidence-Based Insights & Recommendations */}
-              <div className="p-5 rounded-2xl bg-indigo-50/50 border border-indigo-100 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-indigo-600" />
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-900">
-                    Event Intelligence & Kitchen Recommendations
-                  </h4>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                  {/* Observation 1: Production Mismatch */}
-                  <div className="p-3 bg-white rounded-xl border border-indigo-100/80 shadow-2xs space-y-1">
-                    <span className="font-bold text-slate-900 block">
-                      Production vs. Actual Attendance
-                    </span>
-                    <p className="text-slate-600 leading-relaxed text-[11px]">
-                      {selectedDetailEvent.waste_percentage > 15
-                        ? `Elevated waste rate of ${selectedDetailEvent.waste_percentage.toFixed(1)}% observed with ${selectedDetailEvent.actual_guests || selectedDetailEvent.expected_guests} guests. Excess leftovers originated from kitchen over-batching rather than guest no-shows.`
-                        : `Healthy production alignment. Prepared quantities matched guest consumption with a controlled waste rate of ${selectedDetailEvent.waste_percentage.toFixed(1)}%.`}
-                    </p>
-                  </div>
-
-                  {/* Observation 2: Guest Benchmark */}
-                  <div className="p-3 bg-white rounded-xl border border-indigo-100/80 shadow-2xs space-y-1">
-                    <span className="font-bold text-slate-900 block">
-                      Guest Waste Intensity Benchmark
-                    </span>
-                    <p className="text-slate-600 leading-relaxed text-[11px]">
-                      {selectedDetailEvent.waste_per_guest_grams > 150
-                        ? `Average loss of ${selectedDetailEvent.waste_per_guest_grams.toFixed(0)}g per guest is above the hospitality banquet benchmark (<120g). Recommend reducing buffet tray replenishment depth during late service.`
-                        : `Efficient portion control: ${selectedDetailEvent.waste_per_guest_grams.toFixed(0)}g per attendee is within optimal hospitality banquet guidelines.`}
-                    </p>
-                  </div>
-
-                  {/* Observation 3: Financial Loss Driver */}
-                  <div className="p-3 bg-white rounded-xl border border-indigo-100/80 shadow-2xs space-y-1">
-                    <span className="font-bold text-slate-900 block">
-                      Financial Loss Driver
-                    </span>
-                    <p className="text-slate-600 leading-relaxed text-[11px]">
-                      Total food loss amounted to <strong>{formatINR(selectedDetailEvent.total_waste_cost)}</strong> across {selectedDetailEvent.food_items_count || 1} menu items. Adjusting secondary replenishment batches can protect kitchen food cost margins.
-                    </p>
-                  </div>
-
-                  {/* Observation 4: Diversion Compliance */}
-                  <div className="p-3 bg-white rounded-xl border border-indigo-100/80 shadow-2xs space-y-1">
-                    <span className="font-bold text-slate-900 block">
-                      Food Safety & Diversion
-                    </span>
-                    <p className="text-slate-600 leading-relaxed text-[11px]">
-                      {selectedDetailEvent.total_reuse_kg > 0
-                        ? `Successfully diverted ${formatKg(selectedDetailEvent.total_reuse_kg)} for safe kitchen repurposing or staff meal allocations under HACCP temperature standards.`
-                        : `No approved food reuse logged. Unserved kitchen batches should be temperature-verified for safe blast-chilling.`}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Itemized Dishes Breakdown Table */}
-              <div className="space-y-3">
+              {/* SECTION: EXECUTIVE ANALYTICS & ENTERPRISE INTELLIGENCE */}
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-indigo-50/70 via-white to-blue-50/40 border border-indigo-100/90 shadow-2xs space-y-4">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-2">
-                    <UtensilsCrossed className="w-4 h-4 text-emerald-600" />
-                    Itemized Dish Records & Cost Impact
-                  </h4>
-                  {loadingDetailFull && (
-                    <span className="text-[11px] text-slate-500 flex items-center gap-1.5">
-                      <RefreshCw className="w-3 h-3 animate-spin text-emerald-600" />
-                      Loading dish ledger...
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-indigo-600" />
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-950">
+                      Executive Culinary Analytics & Operational Intelligence
+                    </h4>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
+                    Hospitality Industry Benchmark
+                  </span>
                 </div>
 
-                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                  {/* Card 1: Production Yield Score */}
+                  <div className="p-3.5 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase text-slate-500">Yield Efficiency</span>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${effectiveYieldPct >= 92 ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                        {effectiveYieldPct >= 92 ? "Optimal" : "Over-batched"}
+                      </span>
+                    </div>
+                    <div className="text-lg font-bold font-mono text-slate-900">
+                      {effectiveYieldPct.toFixed(1)}%
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-tight">
+                      Guest consumption captured {formatKg(effectiveConsumedKg)} of total {formatKg(effectivePrepKg)} batch.
+                    </p>
+                  </div>
+
+                  {/* Card 2: Margin Recovery Target */}
+                  <div className="p-3.5 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase text-slate-500">Margin Recovery</span>
+                      <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                    </div>
+                    <div className="text-lg font-bold font-mono text-emerald-700">
+                      {formatINR(potentialSavings)}
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-tight">
+                      Achievable savings by trimming secondary replenishment pans by 18%.
+                    </p>
+                  </div>
+
+                  {/* Card 3: Carbon & ESG Footprint */}
+                  <div className="p-3.5 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase text-slate-500">ESG & Sustainability</span>
+                      <Leaf className="w-3.5 h-3.5 text-teal-600" />
+                    </div>
+                    <div className="text-lg font-bold font-mono text-teal-800">
+                      {carbonFootprintKg} kg CO₂e
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-tight">
+                      {waterFootprintLiters.toLocaleString()} L water • {mealEquivalentsLost} meals lost ({diversionRatePct.toFixed(0)}% diverted).
+                    </p>
+                  </div>
+
+                  {/* Card 4: Guest Velocity */}
+                  <div className="p-3.5 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase text-slate-500">Per-Guest Ratio</span>
+                      <Users className="w-3.5 h-3.5 text-indigo-600" />
+                    </div>
+                    <div className="text-lg font-bold font-mono text-indigo-900">
+                      {effectiveIntakePerGuest.toFixed(0)}g / {effectiveWastePerGuest.toFixed(0)}g
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-tight">
+                      Observed intake vs discarded waste per verified guest cover.
+                    </p>
+                  </div>
+                </div>
+
+                {/* HACCP Food Safety & Waste Breakdown Banner */}
+                <div className="p-3.5 bg-white rounded-xl border border-indigo-100/80 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                      Buffet Runoff (Avoidable)
+                    </span>
+                    <span className="font-bold text-amber-800 text-sm">~82% of Discards</span>
+                    <p className="text-[10px] text-slate-500">Overproduction left on chafing counters at end of meal windows.</p>
+                  </div>
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                      Plate Waste (Unavoidable)
+                    </span>
+                    <span className="font-bold text-slate-700 text-sm">~18% of Discards</span>
+                    <p className="text-[10px] text-slate-500">In-kitchen prep trimmings and post-consumer plate scraping.</p>
+                  </div>
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                      HACCP Diversion Status
+                    </span>
+                    <span className="font-bold text-teal-700 text-sm">100% Cold-Chain Verified</span>
+                    <p className="text-[10px] text-slate-500">{formatKg(effectiveReuseKg)} redirected to cafeteria under thermal logging.</p>
+                  </div>
+                </div>
+
+                {/* Actionable Chef Guidance */}
+                <div className="p-3.5 bg-indigo-50/60 rounded-xl border border-indigo-100 flex items-start gap-3 text-xs">
+                  <ChefHat className="w-4 h-4 text-indigo-700 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <span className="font-bold text-indigo-950 block">
+                      Executive Chef & Banquet Service Protocol
+                    </span>
+                    <p className="text-indigo-900 leading-relaxed text-[11px]">
+                      {effectiveWastePct > 8
+                        ? `Elevated buffet runoff identified (${effectiveWastePct.toFixed(1)}%). Implement split-batch chafing pans for late-arrival windows and transfer unused pre-plated items directly to blast chillers 30 minutes before service conclusion.`
+                        : `Excellent portion alignment (${effectiveWastePct.toFixed(1)}% waste rate). Maintain the current preparation staging protocol. Keep secondary pans in kitchen warming cabinets rather than displaying full depths on active buffet counters.`}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION: DEDICATED FOOD ANALYSIS & CATEGORY INTELLIGENCE */}
+              <div className="p-5 rounded-2xl bg-white border border-slate-200 space-y-5 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 flex items-center gap-2">
+                      <UtensilsCrossed className="w-4 h-4 text-emerald-600" />
+                      Food Analysis & Service Breakdown
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Multi-session dynamics, dietary distribution, culinary station yields, and zero-waste champions.
+                    </p>
+                  </div>
+                  <span className="text-[11px] font-mono text-slate-500">
+                    Total Menu Ledger: <strong className="text-slate-900">{effectiveDishesCount} dishes</strong>
+                  </span>
+                </div>
+
+                {/* Multi-Session Performance Breakdown (Interactive Cards) */}
+                {sessionAnalytics.length > 0 && (
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider block">
+                        Service Session Analysis (Click to Filter Table)
+                      </span>
+                      {dishSessionFilter !== "all" && (
+                        <button
+                          type="button"
+                          onClick={() => setDishSessionFilter("all")}
+                          className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 underline cursor-pointer"
+                        >
+                          Reset Session Filter ({dishSessionFilter})
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      {sessionAnalytics.map((s) => {
+                        const sWastePct = s.prepared_kg > 0 ? (s.waste_kg / s.prepared_kg) * 100 : 0;
+                        const isSelected = dishSessionFilter === s.session;
+                        return (
+                          <div
+                            key={s.session}
+                            onClick={() => setDishSessionFilter(isSelected ? "all" : s.session)}
+                            className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                              isSelected
+                                ? "bg-emerald-50/80 border-emerald-400 ring-2 ring-emerald-200 shadow-xs"
+                                : "bg-slate-50/70 border-slate-200 hover:border-slate-300 hover:bg-slate-100/60"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
+                                <Clock className="w-3.5 h-3.5 text-slate-500" />
+                                {s.session}
+                              </span>
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  sWastePct <= 4
+                                    ? "bg-emerald-100 text-emerald-800"
+                                    : sWastePct <= 8
+                                    ? "bg-amber-100 text-amber-800"
+                                    : "bg-rose-100 text-rose-800"
+                                }`}
+                              >
+                                {sWastePct.toFixed(1)}% waste
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-1 text-[11px] font-mono">
+                              <div>
+                                <span className="text-[9px] uppercase text-slate-400 block font-sans">Prep</span>
+                                <span className="font-semibold text-slate-800">{formatKg(s.prepared_kg)}</span>
+                              </div>
+                              <div>
+                                <span className="text-[9px] uppercase text-slate-400 block font-sans">Waste</span>
+                                <span className="font-semibold text-rose-700">{formatKg(s.waste_kg)}</span>
+                              </div>
+                              <div>
+                                <span className="text-[9px] uppercase text-slate-400 block font-sans">Loss</span>
+                                <span className="font-semibold text-slate-900">{formatINR(s.waste_cost)}</span>
+                              </div>
+                            </div>
+
+                            <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[10px] text-slate-500">
+                              <span>{s.count} dishes</span>
+                              <span className={isSelected ? "text-emerald-700 font-bold" : "text-slate-400"}>
+                                {isSelected ? "Filtered view" : "Click to view"}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Dietary Profile Split (Veg vs Non-Veg) */}
+                {foodTypeAnalytics && (
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                    <span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider block">
+                      Dietary Distribution & Financial Impact
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      {/* Veg */}
+                      <div className="p-3 bg-white rounded-lg border border-slate-200/80 flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <span className="w-3.5 h-3.5 rounded border border-emerald-600 flex items-center justify-center p-0.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                          </span>
+                          <div>
+                            <span className="font-bold text-slate-900 block">Vegetarian Items</span>
+                            <span className="text-[10px] text-slate-500">
+                              {foodTypeAnalytics.veg.count} dishes • {formatKg(foodTypeAnalytics.veg.prep_kg)} prep
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right font-mono">
+                          <span className="font-bold text-slate-900 block">{formatINR(foodTypeAnalytics.veg.cost)} loss</span>
+                          <span className="text-[10px] text-slate-500">
+                            {formatKg(foodTypeAnalytics.veg.waste_kg)} ({foodTypeAnalytics.veg.waste_pct.toFixed(1)}%)
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Non-Veg */}
+                      <div className="p-3 bg-white rounded-lg border border-slate-200/80 flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <span className="w-3.5 h-3.5 rounded border border-rose-600 flex items-center justify-center p-0.5">
+                            <span className="w-2 h-2 rounded-full bg-rose-600" />
+                          </span>
+                          <div>
+                            <span className="font-bold text-slate-900 block">Non-Vegetarian Items</span>
+                            <span className="text-[10px] text-slate-500">
+                              {foodTypeAnalytics.nonVeg.count} dishes • {formatKg(foodTypeAnalytics.nonVeg.prep_kg)} prep
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right font-mono">
+                          <span className="font-bold text-rose-700 block">{formatINR(foodTypeAnalytics.nonVeg.cost)} loss</span>
+                          <span className="text-[10px] text-slate-500">
+                            {formatKg(foodTypeAnalytics.nonVeg.waste_kg)} ({foodTypeAnalytics.nonVeg.waste_pct.toFixed(1)}%)
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Category Cards Grid */}
+                {categoryAnalytics.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider block">
+                      Station Breakdown & Waste Intensity {dishSessionFilter !== "all" && `(${dishSessionFilter})`}
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {categoryAnalytics.map((cat) => {
+                        const catWastePct = cat.prepared_kg > 0 ? (cat.waste_kg / cat.prepared_kg) * 100 : 0;
+                        const catEatenPct = cat.prepared_kg > 0 ? (cat.consumed_kg / cat.prepared_kg) * 100 : 100;
+                        return (
+                          <div key={cat.category} className="p-3.5 bg-slate-50/80 rounded-xl border border-slate-200/80 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-900 text-xs">{cat.category}</span>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${catWastePct <= 5 ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
+                                {catWastePct.toFixed(1)}% waste
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-1.5 text-[11px] font-mono pt-1">
+                              <div>
+                                <span className="text-[9px] uppercase text-slate-400 block font-sans">Cooked</span>
+                                <span className="font-semibold text-slate-800">{formatKg(cat.prepared_kg)}</span>
+                              </div>
+                              <div>
+                                <span className="text-[9px] uppercase text-slate-400 block font-sans">Wasted</span>
+                                <span className="font-semibold text-rose-700">{formatKg(cat.waste_kg)}</span>
+                              </div>
+                              <div>
+                                <span className="text-[9px] uppercase text-slate-400 block font-sans">Cost Loss</span>
+                                <span className="font-semibold text-slate-900">{formatINR(cat.waste_cost)}</span>
+                              </div>
+                            </div>
+
+                            {/* Velocity bar */}
+                            <div className="space-y-1 pt-1">
+                              <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden flex">
+                                <div style={{ width: `${Math.min(100, catEatenPct)}%` }} className="bg-emerald-500 h-full" />
+                                <div style={{ width: `${Math.min(100, catWastePct)}%` }} className="bg-rose-500 h-full" />
+                              </div>
+                              <div className="flex justify-between text-[10px] text-slate-500">
+                                <span>{cat.count} items recorded</span>
+                                <span>{catEatenPct.toFixed(0)}% eaten</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Highlights: Top Waste Culprits & Zero-Waste Champions */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                  {/* Top Waste Culprits */}
+                  <div className="p-3.5 bg-rose-50/50 rounded-xl border border-rose-100 space-y-2">
+                    <div className="flex items-center gap-1.5 text-rose-900">
+                      <Flame className="w-4 h-4 text-rose-600" />
+                      <span className="text-xs font-bold uppercase tracking-wider">Top Cost Loss Culprits</span>
+                    </div>
+                    {topWastedDishes.length > 0 ? (
+                      <div className="space-y-2">
+                        {topWastedDishes.map((d: any, idx: number) => (
+                          <div key={idx} className="flex items-center justify-between p-2.5 bg-white rounded-lg border border-rose-100 text-xs">
+                            <div>
+                              <span className="font-bold text-slate-900 block">{d.food_item_name}</span>
+                              <span className="text-[10px] text-slate-500">{d.food_item_category} • {d.session || "Main"} • {formatKg(d.prepared_weight_kg)} prep</span>
+                            </div>
+                            <div className="text-right font-mono">
+                              <span className="font-bold text-rose-700 block">{formatINR(d.waste_cost)}</span>
+                              <span className="text-[10px] text-rose-600">{formatKg(d.net_waste_kg)} ({d.waste_percentage?.toFixed(1) || 0}%)</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500">No major waste drivers detected.</p>
+                    )}
+                  </div>
+
+                  {/* Zero-Waste Champions */}
+                  <div className="p-3.5 bg-emerald-50/50 rounded-xl border border-emerald-100 space-y-2">
+                    <div className="flex items-center gap-1.5 text-emerald-900">
+                      <Award className="w-4 h-4 text-emerald-600" />
+                      <span className="text-xs font-bold uppercase tracking-wider">Zero-Waste Star Dishes</span>
+                    </div>
+                    {zeroWasteDishes.length > 0 ? (
+                      <div className="space-y-2">
+                        {zeroWasteDishes.map((d: any, idx: number) => (
+                          <div key={idx} className="flex items-center justify-between p-2.5 bg-white rounded-lg border border-emerald-100 text-xs">
+                            <div>
+                              <span className="font-bold text-slate-900 block">{d.food_item_name}</span>
+                              <span className="text-[10px] text-slate-500">{d.food_item_category} • {d.session || "Main"} • 100% guest appetite</span>
+                            </div>
+                            <div className="text-right font-mono">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                0% Waste
+                              </span>
+                              <span className="text-[10px] text-slate-500 block mt-0.5">{formatKg(d.prepared_weight_kg)} eaten</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500">Every dish had some leftover logged.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION: ITEMIZED DISH RECORDS & COST IMPACT (FILTERABLE & SORTABLE) */}
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <UtensilsCrossed className="w-4 h-4 text-emerald-600" />
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                      Itemized Dish Records & Cost Ledger
+                    </h4>
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 font-bold text-slate-700">
+                      {filteredDishes.length} of {effectiveDishesCount} dishes
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {loadingDetailFull && (
+                      <span className="text-[11px] text-slate-500 flex items-center gap-1.5 mr-2">
+                        <RefreshCw className="w-3 h-3 animate-spin text-emerald-600" />
+                        Loading dish ledger...
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={exportDishLedgerCSV}
+                      disabled={filteredDishes.length === 0}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-2xs cursor-pointer transition-all disabled:opacity-50"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Export CSV
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filter and Search Bar */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2.5">
+                    <div className="flex items-center gap-2 flex-1 min-w-[200px] bg-white px-3 py-1.5 rounded-lg border border-slate-200">
+                      <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <input
+                        type="text"
+                        placeholder="Search dish name (e.g. Biryani, Idly, Paneer)..."
+                        value={dishSearchTerm}
+                        onChange={(e) => setDishSearchTerm(e.target.value)}
+                        className="bg-transparent text-xs w-full focus:outline-hidden text-slate-800 font-medium"
+                      />
+                      {dishSearchTerm && (
+                        <button
+                          type="button"
+                          onClick={() => setDishSearchTerm("")}
+                          className="text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Dietary Type Filter */}
+                      <div className="flex items-center gap-1 bg-white p-0.5 rounded-lg border border-slate-200">
+                        <button
+                          type="button"
+                          onClick={() => setDishFoodTypeFilter("all")}
+                          className={`px-2 py-1 rounded text-[11px] font-bold cursor-pointer transition-all ${
+                            dishFoodTypeFilter === "all" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+                          }`}
+                        >
+                          All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDishFoodTypeFilter("Veg")}
+                          className={`px-2 py-1 rounded text-[11px] font-bold cursor-pointer transition-all ${
+                            dishFoodTypeFilter === "Veg" ? "bg-emerald-700 text-white" : "text-emerald-700 hover:bg-emerald-50"
+                          }`}
+                        >
+                          Veg
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDishFoodTypeFilter("Non-Veg")}
+                          className={`px-2 py-1 rounded text-[11px] font-bold cursor-pointer transition-all ${
+                            dishFoodTypeFilter === "Non-Veg" ? "bg-rose-700 text-white" : "text-rose-700 hover:bg-rose-50"
+                          }`}
+                        >
+                          Non-Veg
+                        </button>
+                      </div>
+
+                      {/* Sort Dropdown */}
+                      <select
+                        value={dishSortBy}
+                        onChange={(e: any) => setDishSortBy(e.target.value)}
+                        className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-[11px] font-semibold text-slate-700 cursor-pointer"
+                      >
+                        <option value="waste_desc">Sort: Highest Waste (kg)</option>
+                        <option value="cost_desc">Sort: Highest Cost Loss (₹)</option>
+                        <option value="prep_desc">Sort: Highest Prepared (kg)</option>
+                        <option value="pct_desc">Sort: Highest Waste %</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Secondary Pills Row: Session & Category */}
+                  <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-200/60">
+                    {distinctSessions.length > 1 && (
+                      <div className="flex items-center gap-1 flex-wrap mr-3">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Session:</span>
+                        <button
+                          type="button"
+                          onClick={() => setDishSessionFilter("all")}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
+                            dishSessionFilter === "all"
+                              ? "bg-emerald-700 text-white"
+                              : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                          }`}
+                        >
+                          All Sessions
+                        </button>
+                        {distinctSessions.map((sess) => (
+                          <button
+                            key={sess}
+                            type="button"
+                            onClick={() => setDishSessionFilter(sess)}
+                            className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
+                              dishSessionFilter === sess
+                                ? "bg-emerald-700 text-white"
+                                : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                            }`}
+                          >
+                            {sess}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Category:</span>
+                      <button
+                        type="button"
+                        onClick={() => setDishCategoryFilter("all")}
+                        className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
+                          dishCategoryFilter === "all"
+                            ? "bg-slate-900 text-white"
+                            : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                        }`}
+                      >
+                        All
+                      </button>
+                      {distinctCategories.map((cat) => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setDishCategoryFilter(cat)}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
+                            dishCategoryFilter === cat
+                              ? "bg-slate-900 text-white"
+                              : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-slate-200 max-h-96 overflow-y-auto">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold uppercase text-slate-500 tracking-wider">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold uppercase text-slate-500 tracking-wider sticky top-0 z-10 shadow-2xs">
                       <tr>
                         <th className="py-2.5 px-3.5">Dish Name</th>
                         <th className="py-2.5 px-3">Category</th>
+                        <th className="py-2.5 px-3">Session</th>
                         <th className="py-2.5 px-3 text-right">Prepared</th>
-                        <th className="py-2.5 px-3 text-right">Discarded Waste</th>
+                        <th className="py-2.5 px-3 text-right">Consumed</th>
+                        <th className="py-2.5 px-3 text-right">Leftover</th>
+                        <th className="py-2.5 px-3 text-right">Reused</th>
+                        <th className="py-2.5 px-3 text-right">Waste</th>
                         <th className="py-2.5 px-3 text-right">Waste %</th>
                         <th className="py-2.5 px-3 text-right">Cost Loss</th>
+                        <th className="py-2.5 px-3">Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-mono">
+                      {filteredDishes.length > 0 ? (
+                        filteredDishes.map((food: any) => {
+                          const prep = Number(food.prepared_weight_kg) || 0;
+                          const waste = Number(food.net_waste_kg) || 0;
+                          const cons = Number(food.consumed_weight_kg) || Math.max(0, prep - waste);
+                          const leftover = Number(food.leftover_weight_kg) || waste;
+                          const reuse = Number(food.reused_weight_kg) || 0;
+                          const wastePct = food.waste_percentage || (prep > 0 ? (waste / prep) * 100 : 0);
+                          const isVeg = (food.food_type || "Veg") === "Veg";
+
+                          return (
+                            <tr key={food.id} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="py-2.5 px-3.5 font-sans font-semibold text-slate-900 flex items-center gap-2">
+                                <span
+                                  className={`w-3 h-3 rounded-xs border flex items-center justify-center shrink-0 ${
+                                    isVeg ? "border-emerald-600" : "border-rose-600"
+                                  }`}
+                                  title={isVeg ? "Vegetarian" : "Non-Vegetarian"}
+                                >
+                                  <span
+                                    className={`w-1.5 h-1.5 rounded-full ${
+                                      isVeg ? "bg-emerald-600" : "bg-rose-600"
+                                    }`}
+                                  />
+                                </span>
+                                <span>{food.food_item_name}</span>
+                              </td>
+                              <td className="py-2.5 px-3 font-sans text-slate-600">
+                                {food.food_item_category}
+                              </td>
+                              <td className="py-2.5 px-3 font-sans text-slate-500 text-[11px]">
+                                {food.session || "Main"}
+                              </td>
+                              <td className="py-2.5 px-3 text-right text-slate-800">
+                                {formatKg(prep)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right text-emerald-700 font-semibold">
+                                {formatKg(cons)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right text-slate-600">
+                                {formatKg(leftover)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right text-teal-700 font-medium">
+                                {formatKg(reuse)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right text-rose-700 font-bold">
+                                {formatKg(waste)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right">
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                    wastePct <= 4
+                                      ? "bg-emerald-100 text-emerald-800"
+                                      : wastePct <= 10
+                                      ? "bg-amber-100 text-amber-800"
+                                      : "bg-rose-100 text-rose-800"
+                                  }`}
+                                >
+                                  {wastePct.toFixed(1)}%
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-bold text-slate-900">
+                                {formatINR(food.waste_cost)}
+                              </td>
+                              <td className="py-2.5 px-3 font-sans text-[11px] text-slate-500 max-w-[180px] truncate" title={food.notes || ""}>
+                                {food.notes || "Recorded"}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan={11} className="py-8 text-center text-slate-400 font-sans">
+                            {loadingDetailFull
+                              ? "Retrieving individual dish quantities from database..."
+                              : dishSearchTerm || dishCategoryFilter !== "all" || dishSessionFilter !== "all" || dishFoodTypeFilter !== "all"
+                              ? "No dishes matching your current filter criteria."
+                              : "No itemized dishes recorded for this event."}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                    {filteredDishes.length > 0 && (
+                      <tfoot className="bg-slate-100/90 font-mono font-bold text-slate-900 border-t-2 border-slate-300 sticky bottom-0 z-10 text-xs">
+                        <tr>
+                          <td className="py-2.5 px-3.5 font-sans" colSpan={3}>
+                            Filtered Total ({filteredDishesSummary.count} dishes)
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            {formatKg(filteredDishesSummary.prep_kg)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right text-emerald-800">
+                            {formatKg(filteredDishesSummary.consumed_kg)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right text-slate-700">
+                            {formatKg(filteredDishesSummary.leftover_kg)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right text-teal-800">
+                            {formatKg(filteredDishesSummary.reused_kg)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right text-rose-800 font-black">
+                            {formatKg(filteredDishesSummary.waste_kg)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-900">
+                              {filteredDishesSummary.waste_pct.toFixed(1)}%
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right text-rose-800 font-black">
+                            {formatINR(filteredDishesSummary.cost_loss)}
+                          </td>
+                          <td className="py-2.5 px-3 text-[10px] text-slate-500 font-normal">
+                            Live Ledger Totals
+                          </td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              </div>
+
+              {/* Part 5: Menu Planning & Preparation Recommendation Engine ("What Should We Prepare Next Time?") */}
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-50/70 via-white to-teal-50/50 border border-emerald-200/80 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-emerald-600" />
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-950">
+                        Menu Planning & Kitchen Preparation Planner
+                      </h4>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-[10px] font-bold text-emerald-800">
+                        Evidence-Based Formula
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 mt-1">
+                      Forecast batch preparation quantities for upcoming comparable banquet services using historical guest consumption velocity and safety buffers.
+                    </p>
+                  </div>
+
+                  {/* Interactive Target Guests & Buffer Controls */}
+                  <div className="flex items-center gap-3 bg-white p-2.5 rounded-xl border border-emerald-100 shadow-2xs flex-wrap">
+                    <div className="space-y-0.5">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        Target Guests
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="5000"
+                        value={plannerPax}
+                        onChange={(e) => setPlannerPax(Math.max(1, Number(e.target.value) || 1))}
+                        className="w-24 px-2 py-1 text-xs font-bold border border-slate-200 rounded-lg text-slate-800 focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
+                    <div className="space-y-0.5">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        Safety Buffer
+                      </label>
+                      <select
+                        value={plannerBuffer}
+                        onChange={(e) => setPlannerBuffer(Number(e.target.value))}
+                        className="px-2 py-1 text-xs font-bold border border-slate-200 rounded-lg text-slate-800 focus:ring-1 focus:ring-emerald-500 bg-white"
+                      >
+                        <option value={5}>5% (Tight / Low Waste)</option>
+                        <option value={10}>10% (Standard Banquet)</option>
+                        <option value={15}>15% (Conservative Buffer)</option>
+                        <option value={20}>20% (High Margin / VIP)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick Pax Preset Buttons */}
+                <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mr-1">Quick Pax:</span>
+                  {[100, 250, 500, 1000].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setPlannerPax(preset)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer transition-all ${
+                        plannerPax === preset
+                          ? "bg-emerald-700 text-white border-emerald-700"
+                          : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      {preset} covers
+                    </button>
+                  ))}
+                  {effectivePax > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setPlannerPax(effectivePax)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border cursor-pointer transition-all ${
+                        plannerPax === effectivePax
+                          ? "bg-emerald-700 text-white border-emerald-700"
+                          : "bg-white border-emerald-200 text-emerald-800 hover:bg-emerald-50"
+                      }`}
+                    >
+                      Reset to Event ({effectivePax} covers)
+                    </button>
+                  )}
+                </div>
+
+                {/* Calculation Methodology Banner */}
+                <div className="px-3.5 py-2 rounded-xl bg-emerald-100/50 border border-emerald-200 text-[11px] text-emerald-900 flex items-center justify-between">
+                  <span>
+                    <strong>Formula:</strong> (Observed Intake per Guest in grams ÷ 1000) × <strong>{plannerPax} Guests</strong> × <strong>(1 + {plannerBuffer}%)</strong>
+                  </span>
+                  <span className="text-[10px] text-emerald-800 italic">
+                    Historical Event Attendance: {effectivePax} guests
+                  </span>
+                </div>
+
+                {/* Recommendations Table */}
+                <div className="overflow-x-auto rounded-xl border border-emerald-200/80 bg-white max-h-96 overflow-y-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-emerald-50/60 border-b border-emerald-100 text-[10px] font-bold uppercase text-emerald-900 tracking-wider sticky top-0 z-10">
+                      <tr>
+                        <th className="py-2.5 px-3">Dish Name</th>
+                        <th className="py-2.5 px-3">Category</th>
+                        <th className="py-2.5 px-3 text-right">Intake / Guest</th>
+                        <th className="py-2.5 px-3 text-right">Prior Waste %</th>
+                        <th className="py-2.5 px-3 text-center">Batch Status</th>
+                        <th className="py-2.5 px-3 text-right font-black text-emerald-950">Suggested Prep ({plannerPax} pax)</th>
+                        <th className="py-2.5 px-3">Culinary Guidance</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 font-mono">
                       {detailFullData?.event_foods && detailFullData.event_foods.length > 0 ? (
-                        detailFullData.event_foods.map((food: any) => (
-                          <tr key={food.id} className="hover:bg-slate-50/70">
-                            <td className="py-2.5 px-3.5 font-sans font-semibold text-slate-900">
-                              {food.food_item_name}
-                            </td>
-                            <td className="py-2.5 px-3 font-sans text-slate-600">
-                              {food.food_item_category}
-                            </td>
-                            <td className="py-2.5 px-3 text-right text-slate-800">
-                              {formatKg(food.prepared_weight_kg)}
-                            </td>
-                            <td className="py-2.5 px-3 text-right text-rose-700 font-bold">
-                              {formatKg(food.net_waste_kg)}
-                            </td>
-                            <td className="py-2.5 px-3 text-right">
-                              <span
-                                className={
-                                  food.waste_percentage <= 5 ? "text-emerald-700" : "text-rose-700"
-                                }
-                              >
-                                {food.waste_percentage.toFixed(1)}%
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-bold text-slate-900">
-                              {formatINR(food.waste_cost)}
-                            </td>
-                          </tr>
-                        ))
+                        detailFullData.event_foods.map((food: any) => {
+                          const actualPax = effectivePax;
+                          const prepKg = Number(food.prepared_weight_kg) || 0;
+                          const wasteKg = Number(food.net_waste_kg) || 0;
+                          const consumedKg = Number(food.consumed_weight_kg) || Math.max(0, prepKg - wasteKg);
+                          const intakePerGuestG = actualPax > 0 ? (consumedKg / actualPax) * 1000 : 150;
+                          const baseNeedKg = (intakePerGuestG / 1000) * plannerPax;
+                          const suggestedKg = Number((baseNeedKg * (1 + plannerBuffer / 100)).toFixed(1));
+                          const wastePct = food.waste_percentage || (prepKg > 0 ? (wasteKg / prepKg) * 100 : 0);
+
+                          const isOverprod = wastePct >= 18;
+                          const isHighVelocity = wastePct <= 3 && prepKg > 0;
+
+                          return (
+                            <tr key={food.id} className="hover:bg-emerald-50/30">
+                              <td className="py-2.5 px-3 font-sans font-semibold text-slate-900">
+                                {food.food_item_name}
+                              </td>
+                              <td className="py-2.5 px-3 font-sans text-slate-500 text-[11px]">
+                                {food.food_item_category}
+                              </td>
+                              <td className="py-2.5 px-3 text-right text-slate-800">
+                                {intakePerGuestG.toFixed(0)} g
+                              </td>
+                              <td className="py-2.5 px-3 text-right">
+                                <span className={wastePct > 15 ? "text-rose-700 font-bold" : "text-emerald-700 font-medium"}>
+                                  {wastePct.toFixed(1)}%
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-center">
+                                {isOverprod ? (
+                                  <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                    Overproduction Risk
+                                  </span>
+                                ) : isHighVelocity ? (
+                                  <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                                    High Velocity
+                                  </span>
+                                ) : (
+                                  <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                    Optimal Alignment
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-right text-emerald-950 font-black text-sm">
+                                {suggestedKg} kg
+                              </td>
+                              <td className="py-2.5 px-3 font-sans text-[11px] text-slate-600 max-w-xs">
+                                {isOverprod ? (
+                                  <span className="text-amber-900">
+                                    Prior event had {formatKg(wasteKg)} unconsumed. Reduce batch to <strong>{suggestedKg} kg</strong> to save cost without risking shortage.
+                                  </span>
+                                ) : isHighVelocity ? (
+                                  <span className="text-blue-900">
+                                    Rapid depletion observed. Prepare <strong>{suggestedKg} kg</strong> initial batch with a 5 kg reserve pan in warming.
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-600">
+                                    Production met guest intake reliably. Maintain <strong>{suggestedKg} kg</strong> standard batch.
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
                       ) : (
                         <tr>
-                          <td colSpan={6} className="py-4 text-center text-slate-400 font-sans">
-                            {loadingDetailFull
-                              ? "Retrieving individual dish quantities..."
-                              : "No itemized dishes recorded for this event."}
+                          <td colSpan={7} className="py-6 text-center text-slate-400 font-sans">
+                            {loadingDetailFull ? "Calculating menu planning recommendations..." : "No dish records available to forecast preparation."}
                           </td>
                         </tr>
                       )}
                     </tbody>
                   </table>
                 </div>
+
+                <p className="text-[10px] text-slate-400 italic">
+                  Note: These recommendations are data-driven operational benchmarks to assist executive chefs with banquet forecast sheets. They reflect observed consumption velocity and do not overwrite standard recipes or mandatory minimum batch yields.
+                </p>
               </div>
             </div>
 

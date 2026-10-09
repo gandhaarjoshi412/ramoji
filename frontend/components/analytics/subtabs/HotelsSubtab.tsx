@@ -146,14 +146,17 @@ export const HotelsSubtab: React.FC<HotelsSubtabProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {hotels.map((h) => {
           const isSelected = selectedHotel === h.hotel_name;
-          const statusColors =
-            h.performance_status === "Excellent"
-              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-              : h.performance_status === "Good"
-              ? "bg-blue-50 text-blue-800 border-blue-200"
-              : h.performance_status === "Moderate"
-              ? "bg-amber-50 text-amber-800 border-amber-200"
-              : "bg-rose-50 text-rose-800 border-rose-200";
+          const hasRecords = h.total_records > 0;
+          const displayStatus = hasRecords ? h.performance_status : "No Activity";
+          const statusColors = !hasRecords
+            ? "bg-slate-100 text-slate-600 border-slate-200"
+            : h.performance_status === "Excellent"
+            ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+            : h.performance_status === "Good"
+            ? "bg-blue-50 text-blue-800 border-blue-200"
+            : h.performance_status === "Moderate"
+            ? "bg-amber-50 text-amber-800 border-amber-200"
+            : "bg-rose-50 text-rose-800 border-rose-200";
 
           return (
             <div
@@ -174,7 +177,7 @@ export const HotelsSubtab: React.FC<HotelsSubtabProps> = ({
                 <span
                   className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full border ${statusColors}`}
                 >
-                  {h.performance_status}
+                  {displayStatus}
                 </span>
               </div>
 
@@ -242,7 +245,9 @@ export const HotelsSubtab: React.FC<HotelsSubtabProps> = ({
               {/* Audit Health and Filter Action */}
               <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                  {h.mass_balance_reconciled ? (
+                  {!hasRecords ? (
+                    <span className="text-slate-400">No Records</span>
+                  ) : h.mass_balance_reconciled ? (
                     <span className="text-emerald-700 flex items-center gap-1">
                       <CheckCircle2 className="w-3.5 h-3.5" /> Reconciled
                     </span>
@@ -251,7 +256,7 @@ export const HotelsSubtab: React.FC<HotelsSubtabProps> = ({
                       <AlertTriangle className="w-3.5 h-3.5" /> Variance {Math.abs(h.leftover_variance_kg).toFixed(1)}kg
                     </span>
                   )}
-                  <span>• DQ: {h.data_quality_score_pct.toFixed(0)}%</span>
+                  <span>• DQ: {hasRecords ? `${h.data_quality_score_pct.toFixed(0)}%` : "N/A (No records)"}</span>
                 </div>
 
                 <button

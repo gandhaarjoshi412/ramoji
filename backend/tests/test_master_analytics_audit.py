@@ -214,3 +214,191 @@ def test_event_delete_impact_and_soft_delete_restore_workflow():
     active_ids2 = [e["id"] for e in list_res2.json()]
     assert event_id in active_ids2
 
+
+def test_empty_records_data_quality_no_data():
+    """
+    Problem E Audit:
+    When no records exist for a hotel or date scope, calculate_data_quality_score
+    must return has_data=False, score=0.0, and rating='No Data Recorded'
+    rather than claiming 100% data health.
+    """
+    res = calculate_data_quality_score([])
+    assert res["has_data"] is False
+    assert res["score"] == 0.0
+    assert res["rating"] == "No Data Recorded"
+
+
+def test_menu_planning_engine_preparation_formula():
+    """
+    Part 5 Audit:
+    Suggested Batch = (Historical Intake / Guest in g / 1000) * Target Guests * (1 + Buffer%)
+    Verifies that:
+    1. A dish with high leftovers is flagged as OVERPRODUCTION_CANDIDATE
+    2. Suggested preparation scales accurately with target pax and buffer percentage
+    3. Actionable culinary recommendations include estimated cost savings
+    """
+    from app.services.menu_planning_engine import generate_menu_preparation_recommendations
+
+    records = [
+        MockRecord(
+            dish_name="Paneer Tikka Masala",
+            dish_category="Main Course",
+            actual_production_kg=50.0,
+            actual_consumption_kg=32.0,
+            total_leftover_kg=18.0,
+            reuse_quantity_kg=5.0,
+            total_waste_kg=13.0,
+            waste_cost=3250.0,
+            item_cost=250.0,
+            pax=100,
+            session="Dinner",
+            event_name="Summit Banquet"
+        ),
+        MockRecord(
+            dish_name="Paneer Tikka Masala",
+            dish_category="Main Course",
+            actual_production_kg=48.0,
+            actual_consumption_kg=30.0,
+            total_leftover_kg=18.0,
+            reuse_quantity_kg=4.0,
+            total_waste_kg=14.0,
+            waste_cost=3500.0,
+            item_cost=250.0,
+            pax=100,
+            session="Dinner",
+            event_name="Corporate Gala"
+        ),
+    ]
+
+    # Target 150 guests with 10% safety buffer
+    res = generate_menu_preparation_recommendations(
+        records=records,
+        target_guests=150,
+        buffer_percentage=10.0,
+        service_format="Buffet"
+    )
+
+    assert res["total_dishes_analyzed"] == 1
+    assert len(res["recommendations"]) == 1
+    rec = res["recommendations"][0]
+
+    assert rec["dish_name"] == "Paneer Tikka Masala"
+    assert rec["status"] == "OVERPRODUCTION_CANDIDATE"
+    # Total consumed: 62 kg across 200 pax = 0.31 kg (310g) per pax
+    # Base for 150 guests = 0.31 * 150 = 46.5 kg
+    # With 10% buffer = 46.5 * 1.10 = 51.15 kg (rounded to 51.2 or 51.1 kg)
+    assert 51.0 <= rec["suggested_preparation_kg"] <= 51.5
+    assert "Reduce Batch Size" in rec["action_verb"]
+    assert rec["suggested_preparation_kg"] > 0
+    assert len(res["overproduction_candidates"]) == 1
+
+
+def test_event_types_canonical_classification_and_legacy_preservation():
+    """
+    Part 2 Audit:
+    Ensure 4 default categories: Corporate, Conference, Social, Wedding (+ Custom).
+    Ensure Birthday and Regular Hotel Service are not default options, but legacy
+    records are safely mapped (e.g. Birthday into Social) without data loss.
+    """
+    from app.routes.events import BUILTIN_CATEGORIES
+
+    builtin_names = [c["name"] for c in BUILTIN_CATEGORIES]
+    assert "Corporate" in builtin_names
+    assert "Conference" in builtin_names
+    assert "Social" in builtin_names
+    assert "Wedding" in builtin_names
+    assert "Birthday" not in builtin_names
+    assert "Regular Hotel Service" not in builtin_names
+
+
+def test_dish_normalization_and_alias_resolution():
+    """
+    Verify canonical catalog lookup and semantic alias normalization:
+    - 'LAL MIRCH KA PANEER TIKKA' -> 'Paneer Tikka'
+    - 'Plain Rice' / 'steamed rice' -> 'Steamed Basmati Rice'
+    - 'Wada' -> 'Medu Vada'
+    - 'Dum Biryani' -> 'Hyderabadi Biryani'
+    """
+    from app.services.dish_matching import normalize_dish_name
+
+    res1 = normalize_dish_name("LAL MIRCH KA PANEER TIKKA")
+    assert res1["canonical_dish"] == "Paneer Tikka"
+    assert res1["is_canonical"] is True
+
+    res2 = normalize_dish_name("Plain Rice")
+    assert res2["canonical_dish"] == "Steamed Basmati Rice"
+    assert res2["is_canonical"] is True
+
+    res3 = normalize_dish_name("Wada")
+    assert res3["canonical_dish"] == "Medu Vada"
+    assert res3["is_canonical"] is True
+
+    res4 = normalize_dish_name("Dum Biryani")
+    assert res4["canonical_dish"] == "Hyderabadi Biryani"
+    assert res4["is_canonical"] is True
+
+    # Fallback for unknown dish
+    res5 = normalize_dish_name("Exotic Dragonfruit Souffle")
+    assert res5["canonical_dish"] == "Exotic Dragonfruit Souffle"
+    assert res5["is_canonical"] is False
+
+
+def test_record_anomaly_auditing():
+    """
+    Verify audit_record_for_anomalies correctly detects:
+    1. Physical impossibility (waste > prep)
+    2. Negative numbers
+    3. Severe discard rate (>80% on significant volume)
+    4. Zero headcount on high volume batch
+    """
+    from app.services.dish_matching import audit_record_for_anomalies
+
+    # Flag 1: Waste > Prep
+    rec_impossible = MockRecord(
+        id=101, actual_production_kg=20.0, total_waste_kg=35.0, pax=50,
+        dish_name="Rice", event_name="Annual Meeting", hotel_name="Sitara"
+    )
+    anomaly1 = audit_record_for_anomalies(rec_impossible)
+    assert anomaly1 is not None
+    assert anomaly1["severity"] == "Critical"
+    assert "exceeds prepared quantity" in anomaly1["flag_reason"]
+
+    # Flag 2: Negative values
+    rec_negative = MockRecord(
+        id=102, actual_production_kg=-10.0, total_waste_kg=5.0, pax=50,
+        dish_name="Dal", event_name="Meeting", hotel_name="Sitara"
+    )
+    anomaly2 = audit_record_for_anomalies(rec_negative)
+    assert anomaly2 is not None
+    assert anomaly2["severity"] == "Critical"
+    assert "Negative value" in anomaly2["flag_reason"]
+
+    # Flag 3: Extreme discard rate (>80% on >=15kg)
+    rec_outlier = MockRecord(
+        id=103, actual_production_kg=30.0, total_waste_kg=26.0, pax=100,
+        dish_name="Basmati Rice", event_name="Corporate Summit", hotel_name="Sitara"
+    )
+    anomaly3 = audit_record_for_anomalies(rec_outlier)
+    assert anomaly3 is not None
+    assert anomaly3["severity"] == "Attention"
+    assert "Extreme discard rate" in anomaly3["flag_reason"]
+
+    # Flag 4: Zero pax on large batch
+    rec_zero_pax = MockRecord(
+        id=104, actual_production_kg=25.0, total_waste_kg=5.0, pax=0,
+        dish_name="Noodles", event_name="Buffet Service", hotel_name="Sitara"
+    )
+    anomaly4 = audit_record_for_anomalies(rec_zero_pax)
+    assert anomaly4 is not None
+    assert anomaly4["severity"] == "Attention"
+    assert "Zero guest count" in anomaly4["flag_reason"]
+
+    # Valid record returns None
+    rec_valid = MockRecord(
+        id=105, actual_production_kg=25.0, total_waste_kg=4.0, pax=100,
+        dish_name="Paneer Butter Masala", event_name="Wedding Dinner", hotel_name="Sitara"
+    )
+    assert audit_record_for_anomalies(rec_valid) is None
+
+
+

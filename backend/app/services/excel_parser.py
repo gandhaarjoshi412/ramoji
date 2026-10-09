@@ -242,30 +242,53 @@ def parse_excel_file(file_content: bytes, filename: str) -> List[Dict[str, Any]]
     wb = openpyxl.load_workbook(io.BytesIO(file_content), data_only=True)
     all_records = []
 
+    from app.services.intelligent_report_parser import parse_and_normalize_report
+
     for name in wb.sheetnames:
         lower_name = name.lower()
         sheet = wb[name]
-        if "sahara" in lower_name:
-            all_records.extend(parse_sahara_sheet(sheet, filename))
-        elif "sitara" in lower_name:
-            all_records.extend(parse_sitara_sheet(sheet, filename))
-        else:
-            # Check sheet content header
-            header_cell = str(sheet.cell(1, 1).value or "").lower()
-            if "sahara" in header_cell:
-                all_records.extend(parse_sahara_sheet(sheet, filename))
-            elif "sitara" in header_cell or "buffet" in header_cell or "pax" in header_cell:
-                all_records.extend(parse_sitara_sheet(sheet, filename))
 
-    # If no specific sheets recognized, attempt sahara then sitara
-    if not all_records and wb.sheetnames:
+        # Check if sheet contains any non-empty cells
+        has_content = any(
+            sheet.cell(r, c).value is not None and str(sheet.cell(r, c).value).strip() != ""
+            for r in range(1, min(20, sheet.max_row + 1))
+            for c in range(1, min(15, sheet.max_column + 1))
+        )
+        if not has_content:
+            continue
+
+        sheet_records = []
+        if "sahara" in lower_name:
+            sheet_records = parse_sahara_sheet(sheet, filename)
+        elif "sitara" in lower_name:
+            sheet_records = parse_sitara_sheet(sheet, filename)
+        else:
+            header_cell = str(sheet.cell(1, 1).value or "").lower() + " " + str(sheet.cell(2, 1).value or "").lower()
+            if "sahara" in header_cell:
+                sheet_records = parse_sahara_sheet(sheet, filename)
+            elif "sitara" in header_cell:
+                sheet_records = parse_sitara_sheet(sheet, filename)
+            else:
+                try:
+                    recs, _ = parse_and_normalize_report(file_content, filename, sheet_name_filter=name)
+                    sheet_records = recs
+                except Exception:
+                    try:
+                        sheet_records = parse_sitara_sheet(sheet, filename)
+                    except Exception:
+                        try:
+                            sheet_records = parse_sahara_sheet(sheet, filename)
+                        except Exception:
+                            sheet_records = []
+
+        all_records.extend(sheet_records)
+
+    if not all_records:
         try:
-            all_records = parse_sahara_sheet(wb[wb.sheetnames[0]], filename)
+            recs, _ = parse_and_normalize_report(file_content, filename)
+            all_records = recs
         except Exception:
-            try:
-                all_records = parse_sitara_sheet(wb[wb.sheetnames[0]], filename)
-            except Exception:
-                all_records = []
+            all_records = []
 
     return all_records
 
@@ -273,9 +296,21 @@ def preview_excel_file(file_content: bytes, filename: str) -> Dict[str, Any]:
     wb = openpyxl.load_workbook(io.BytesIO(file_content), data_only=True)
     sheets_info = []
 
+    from app.services.intelligent_report_parser import parse_and_normalize_report, analyze_sheet_structure, extract_raw_matrices_from_file
+
+    try:
+        raw_matrices = extract_raw_matrices_from_file(file_content, filename)
+    except Exception:
+        raw_matrices = {}
+
     for name in wb.sheetnames:
         sheet = wb[name]
         recs = []
+        hotel = name.capitalize()
+        event_or_sess = "Banquet Operations"
+        pax = 0
+        d = str(date.today())
+
         if "sahara" in name.lower():
             recs = parse_sahara_sheet(sheet, filename)
             hotel = "Hotel Sahara"
@@ -288,15 +323,20 @@ def preview_excel_file(file_content: bytes, filename: str) -> Dict[str, Any]:
             event_or_sess = "M/S. Sarala 60th Birthday"
             pax = 230
             d = "2026-10-07"
-        else:
-            hotel = name.capitalize()
-            event_or_sess = "Banquet Event"
-            pax = 200
-            d = str(date.today())
+        elif name in raw_matrices:
             try:
-                recs = parse_sahara_sheet(sheet, filename)
+                struct = analyze_sheet_structure(name, raw_matrices[name])
+                meta = struct.title_metadata
+                recs, _ = parse_and_normalize_report(file_content, filename, sheet_name_filter=name)
+                hotel = meta.get("hotel_name") or f"Hotel {name.capitalize()}"
+                event_or_sess = meta.get("event_name") or f"Operations - {name.capitalize()}"
+                pax = meta.get("pax") or (recs[0].get("pax") if recs else 0) or 0
+                d = meta.get("date_str") or (str(recs[0].get("record_date")) if recs else str(date.today()))
             except Exception:
-                recs = []
+                try:
+                    recs = parse_sitara_sheet(sheet, filename)
+                except Exception:
+                    recs = []
 
         sheets_info.append({
             "sheet_name": name,

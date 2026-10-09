@@ -344,3 +344,90 @@ def test_custom_event_category_persistence_and_filtering(auth_token):
     assert filter_cat_resp.status_code == 200
     data_cat = filter_cat_resp.json()
     assert data_cat["filter_context"]["active_event_type"] == test_cat_name
+
+
+def test_event_types_cross_event_comparison(auth_token):
+    headers = {"Authorization": f"Bearer {auth_token}"}
+    resp = client.get("/api/analytics/event-types", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # Verify categories list contains canonical event types
+    categories = data.get("categories", [])
+    cat_names = [c["category"] for c in categories]
+    assert "Wedding" in cat_names
+    assert "Corporate" in cat_names
+
+    # Verify cross_event_comparison structure
+    cross_comp = data.get("cross_event_comparison")
+    assert cross_comp is not None
+    assert "headline" in cross_comp
+    assert "core_finding" in cross_comp
+    assert "profiles" in cross_comp
+    assert "head_to_head_comparisons" in cross_comp
+
+    # Check profiles list
+    profiles = cross_comp["profiles"]
+    profile_types = [p["event_type"] for p in profiles]
+    assert "Corporate" in profile_types
+    assert "Wedding" in profile_types
+
+    corp_profile = next(p for p in profiles if p["event_type"] == "Corporate")
+    assert "eaten_more" in corp_profile
+    assert "eaten_less" in corp_profile
+    assert "behavior_summary" in corp_profile
+    assert "kitchen_guidance" in corp_profile
+
+    # Verify dish_consumption_analysis exists on categories
+    wedding_cat = next(c for c in categories if c["category"] == "Wedding")
+    assert "dish_consumption_analysis" in wedding_cat
+    assert "most_consumed" in wedding_cat["dish_consumption_analysis"]
+    assert "least_consumed" in wedding_cat["dish_consumption_analysis"]
+
+    # Verify dish_comparison_matrix exists with cross-event breakdown
+    matrix = data.get("dish_comparison_matrix", [])
+    assert len(matrix) > 0
+    first_item = matrix[0]
+    assert "dish_name" in first_item
+    assert "categories" in first_item
+    assert "highest_waste_category" in first_item
+    assert "lowest_waste_category" in first_item
+    assert "matched_aliases" in first_item
+    assert "key_takeaway" in first_item
+    assert "recommendation" in first_item
+
+    # Verify chart data structures
+    grouped_charts = data.get("grouped_dish_chart_data", [])
+    assert len(grouped_charts) > 0
+    assert "dish_name" in grouped_charts[0]
+
+    guest_charts = data.get("waste_per_guest_chart_data", [])
+    assert len(guest_charts) > 0
+    assert "category" in guest_charts[0]
+    assert "waste_per_guest_g" in guest_charts[0]
+
+    financial_charts = data.get("financial_impact_chart_data", [])
+    assert len(financial_charts) > 0
+    assert "dish_name" in financial_charts[0]
+    assert "total_waste_cost" in financial_charts[0]
+
+    heatmap = data.get("dish_waste_heatmap", [])
+    assert len(heatmap) > 0
+    assert "dish_name" in heatmap[0]
+    assert "cells" in heatmap[0]
+
+    # Verify data_quality_audit
+    dq_audit = data.get("data_quality_audit")
+    assert dq_audit is not None
+    assert "total_records_audited" in dq_audit
+    assert "flagged_records_count" in dq_audit
+    assert "anomalies" in dq_audit
+
+    # Verify operational_intelligence
+    op_intel = data.get("operational_intelligence")
+    assert op_intel is not None
+    assert "executive_summary" in op_intel
+    assert "insights" in op_intel
+
+
+

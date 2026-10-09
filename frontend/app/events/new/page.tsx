@@ -7,21 +7,49 @@ import { useAuth } from "@/lib/auth";
 import { apiRequest } from "@/lib/api";
 import { ArrowLeft, Plus, AlertCircle } from "lucide-react";
 
-export default function NewEventPage() {
+export default function NewEventPage({
+  searchParams,
+}: {
+  searchParams?: { type?: string };
+}) {
   const router = useRouter();
   const { user } = useAuth();
 
   const [name, setName] = useState("");
-  const [eventType, setEventType] = useState("Wedding");
+  const [eventType, setEventType] = useState(searchParams?.type || "Wedding");
+  const [categories, setCategories] = useState<string[]>([
+    "Wedding",
+    "Conference",
+    "Corporate",
+    "Social",
+    "Other",
+  ]);
   const [venue, setVenue] = useState("");
   const [eventDate, setEventDate] = useState(
     new Date().toISOString().split("T")[0]
   );
+  const [customEventTypeName, setCustomEventTypeName] = useState("");
   const [expectedGuests, setExpectedGuests] = useState<string>("");
   const [status, setStatus] = useState("Upcoming");
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    async function loadCategories() {
+      try {
+        const res = await apiRequest<{ name: string }[]>("/api/events/categories");
+        if (res && res.length > 0) {
+          const names = res.map((c) => c.name);
+          const combined = Array.from(new Set(["Corporate", "Social", "Wedding", "Conference", "Custom", ...names]));
+          setCategories(combined);
+        }
+      } catch {
+        // Fallback to default canonical list
+      }
+    }
+    loadCategories();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,6 +61,11 @@ export default function NewEventPage() {
     }
     if (!eventDate) {
       setError("Event date is required.");
+      return;
+    }
+
+    if (eventType === "Custom" && !customEventTypeName.trim()) {
+      setError("Please specify the Custom Event Type Name (e.g. Product Launch, Birthday Party, Film Crew Catering).");
       return;
     }
 
@@ -50,6 +83,7 @@ export default function NewEventPage() {
         body: JSON.stringify({
           name: name.trim(),
           event_type: eventType,
+          event_subtype: eventType === "Custom" ? customEventTypeName.trim() : undefined,
           venue: venue.trim() || undefined,
           event_date: eventDate,
           expected_guests: exp,
@@ -121,11 +155,11 @@ export default function NewEventPage() {
                 onChange={(e) => setEventType(e.target.value)}
                 className="w-full h-10 px-3.5 rounded-lg border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-medium focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 focus:bg-white transition-all cursor-pointer"
               >
-                <option value="Wedding">Wedding</option>
-                <option value="Conference">Conference</option>
-                <option value="Corporate">Corporate</option>
-                <option value="Social">Social</option>
-                <option value="Other">Other</option>
+                {categories.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -142,6 +176,26 @@ export default function NewEventPage() {
               />
             </div>
           </div>
+
+          {/* Conditional Custom Event Type Name Field */}
+          {eventType === "Custom" && (
+            <div className="p-4 rounded-xl bg-amber-50/60 border border-amber-200/80 space-y-1.5">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-amber-900">
+                Custom Event Type Name *
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Product Launch, Birthday Party, Award Ceremony, Film Crew Catering, Private Dinner, Exhibition, Training Workshop"
+                value={customEventTypeName}
+                onChange={(e) => setCustomEventTypeName(e.target.value)}
+                className="w-full h-10 px-3.5 rounded-lg border border-amber-300 bg-white text-slate-900 text-xs font-medium focus:ring-2 focus:ring-amber-500/20 focus:border-amber-600 transition-all"
+              />
+              <p className="text-[11px] text-amber-700 font-medium">
+                Retains its real custom classification for isolated benchmarking without contaminating predefined Corporate or Wedding standards.
+              </p>
+            </div>
+          )}
 
           {/* Venue & Status */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -123,10 +123,10 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
       setPreviewData(res);
       if (res.sheets && res.sheets.length > 0) {
         setSelectedSheet("all");
-        // Pre-fill editable overrides from first detected sheet
+        // Pre-fill editable overrides: if single sheet, prefill directly; if multiple sheets, let each sheet retain its own event unless explicitly overridden
         setHotelOverride(res.sheets[0].hotel || "");
         setDateOverride(res.sheets[0].date || "");
-        setEventOverride(res.sheets[0].event_name || "");
+        setEventOverride(res.sheets.length === 1 ? (res.sheets[0].event_name || "") : "");
       }
     } catch (err: any) {
       setError(err?.message || "Failed to analyze and parse operational report");
@@ -813,7 +813,10 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => setSelectedSheet("all")}
+                    onClick={() => {
+                      setSelectedSheet("all");
+                      setEventOverride("");
+                    }}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
                       selectedSheet === "all"
                         ? "bg-slate-900 text-white shadow-xs"
@@ -891,7 +894,7 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
                     type="text"
                     value={eventOverride}
                     onChange={(e) => setEventOverride(e.target.value)}
-                    placeholder="e.g. Daily Operations - Breakfast"
+                    placeholder={selectedSheet === "all" ? "Leave blank to preserve each sheet's detected event" : "e.g. Daily Operations - Breakfast"}
                     className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-slate-900 focus:outline-emerald-500 text-xs"
                   />
                 </div>

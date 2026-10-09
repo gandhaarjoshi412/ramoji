@@ -25,23 +25,26 @@ export const ExecutiveOverviewSection: React.FC<ExecutiveOverviewSectionProps> =
   foodFlow,
   wasteCostInr,
 }) => {
-  const prod = foodFlow.actual_production_kg || 1;
-  const consPct = ((foodFlow.actual_consumption_kg / prod) * 100).toFixed(1);
-  const leftoverPct = ((foodFlow.total_leftover_kg / prod) * 100).toFixed(1);
-  const reusePct = ((foodFlow.reuse_kg / prod) * 100).toFixed(1);
-  const wastePct = ((foodFlow.final_waste_kg / prod) * 100).toFixed(1);
+  const rawProd = foodFlow.actual_production_kg || 0;
+  const prodDenominator = rawProd > 0 ? rawProd : 1;
+  const consPct = rawProd > 0 ? ((foodFlow.actual_consumption_kg / prodDenominator) * 100).toFixed(1) : "0.0";
+  const leftoverPct = rawProd > 0 ? ((foodFlow.total_leftover_kg / prodDenominator) * 100).toFixed(1) : "0.0";
+  const reusePct = rawProd > 0 ? ((foodFlow.reuse_kg / prodDenominator) * 100).toFixed(1) : "0.0";
+  const wastePct = rawProd > 0 ? ((foodFlow.final_waste_kg / prodDenominator) * 100).toFixed(1) : "0.0";
 
   // Waste breakdown composition
   const buffetWasteKg = foodFlow.buffet_leftover_kg || 0;
   const kitchenWasteKg = foodFlow.kitchen_leftover_kg || 0;
   const reuseKg = foodFlow.reuse_kg || 0;
   const finalWasteKg = foodFlow.final_waste_kg || 0;
-  const totalTrackedWasteKg = buffetWasteKg + kitchenWasteKg + reuseKg + finalWasteKg || 1;
+  const rawTrackedWasteKg = buffetWasteKg + kitchenWasteKg + reuseKg + finalWasteKg;
+  const totalTrackedWasteKg = rawTrackedWasteKg;
+  const wasteDenominator = rawTrackedWasteKg > 0 ? rawTrackedWasteKg : 1;
 
-  const buffetShare = ((buffetWasteKg / totalTrackedWasteKg) * 100).toFixed(1);
-  const kitchenShare = ((kitchenWasteKg / totalTrackedWasteKg) * 100).toFixed(1);
-  const reuseShare = ((reuseKg / totalTrackedWasteKg) * 100).toFixed(1);
-  const finalWasteShare = ((finalWasteKg / totalTrackedWasteKg) * 100).toFixed(1);
+  const buffetShare = rawTrackedWasteKg > 0 ? ((buffetWasteKg / wasteDenominator) * 100).toFixed(1) : "0.0";
+  const kitchenShare = rawTrackedWasteKg > 0 ? ((kitchenWasteKg / wasteDenominator) * 100).toFixed(1) : "0.0";
+  const reuseShare = rawTrackedWasteKg > 0 ? ((reuseKg / wasteDenominator) * 100).toFixed(1) : "0.0";
+  const finalWasteShare = rawTrackedWasteKg > 0 ? ((finalWasteKg / wasteDenominator) * 100).toFixed(1) : "0.0";
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

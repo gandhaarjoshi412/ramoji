@@ -16,7 +16,7 @@ from app.routes.scan import build_scan_response
 from app.services.calculation import calculate_net_weight, CalculationError
 from app.services.scale import ManualScaleProvider
 from app.services.cost_engine import FoodCostService
-from app.services.event_sync import sync_event_scans_to_event_foods
+from app.services.event_sync import sync_event_scans_to_event_foods, sync_event_to_analytics_records
 from ai.food_classes import resolve_food_metadata
 from app.utils.security import get_current_user
 
@@ -172,6 +172,10 @@ async def record_event_waste(
 
         # Sync metrics to Event Foods & Yield Loss
         sync_event_scans_to_event_foods(db, event_id)
+        try:
+            sync_event_to_analytics_records(db, event_id)
+        except Exception:
+            pass
 
         return build_scan_response(scan)
 
@@ -227,6 +231,10 @@ async def record_event_waste(
 
     db.commit()
     db.refresh(record)
+    try:
+        sync_event_to_analytics_records(db, event_id)
+    except Exception:
+        pass
     record.recorder = current_user
     return build_waste_response(record)
 

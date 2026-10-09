@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from typing import List, Optional
 from datetime import date
 
@@ -28,16 +28,17 @@ from app.services.calculation import (
     calculate_waste_cost,
     calculate_waste_per_guest,
 )
-from app.services.event_sync import sync_event_scans_to_event_foods
+from app.services.event_sync import sync_event_scans_to_event_foods, sync_event_to_analytics_records
 from app.utils.security import get_current_user
 
 router = APIRouter(prefix="/api/events", tags=["Events"])
 
 BUILTIN_CATEGORIES = [
     {"name": "Corporate", "code": "corporate", "description": "Corporate events, seminars, and business luncheons"},
-    {"name": "Conference", "code": "conference", "description": "Large conferences, trade shows, conventions, and symposiums"},
     {"name": "Social", "code": "social", "description": "Social gatherings, private celebrations, anniversaries, and parties"},
     {"name": "Wedding", "code": "wedding", "description": "Weddings, receptions, sangeet, and marriage banquets"},
+    {"name": "Conference", "code": "conference", "description": "Large conferences, trade shows, conventions, and symposiums"},
+    {"name": "Custom", "code": "custom", "description": "Custom banquet event with specified category classification"},
 ]
 
 def ensure_default_categories(db: Session):
@@ -98,8 +99,17 @@ def build_event_list_item(event: Event, db: Optional[Session] = None) -> EventLi
 
     if food_items_count == 0 and db is not None:
         ar_list = db.query(AnalyticsRecord).filter(
-            AnalyticsRecord.event_id == event.id,
             AnalyticsRecord.is_archived == False
+        ).filter(
+            or_(
+                AnalyticsRecord.event_id == event.id,
+                func.lower(AnalyticsRecord.event_name) == func.lower(event.name),
+                (
+                    (AnalyticsRecord.hotel_id == event.hotel_id) &
+                    (AnalyticsRecord.record_date == event.event_date) &
+                    (func.lower(event.name).contains(func.lower(AnalyticsRecord.session)))
+                )
+            )
         ).all()
         if ar_list:
             total_prepared_kg = round(sum(float(r.actual_production_kg or 0.0) for r in ar_list), 2)
@@ -112,6 +122,23 @@ def build_event_list_item(event: Event, db: Optional[Session] = None) -> EventLi
 
     waste_percentage = calculate_waste_percentage(total_waste_kg, total_prepared_kg)
     guest_count = event.actual_guests if event.actual_guests > 0 else event.expected_guests
+    if guest_count <= 0 and food_items_count > 0 and db is not None:
+        ar_pax = db.query(func.max(AnalyticsRecord.pax)).filter(
+            AnalyticsRecord.is_archived == False
+        ).filter(
+            or_(
+                AnalyticsRecord.event_id == event.id,
+                func.lower(AnalyticsRecord.event_name) == func.lower(event.name),
+                (
+                    (AnalyticsRecord.hotel_id == event.hotel_id) &
+                    (AnalyticsRecord.record_date == event.event_date) &
+                    (func.lower(event.name).contains(func.lower(AnalyticsRecord.session)))
+                )
+            )
+        ).scalar()
+        if ar_pax:
+            guest_count = int(ar_pax)
+
     waste_per_guest_kg = calculate_waste_per_guest(total_waste_kg, guest_count)
     waste_per_guest_grams = round(waste_per_guest_kg * 1000.0, 1)
     hotel_name = event.hotel.name if (hasattr(event, "hotel") and event.hotel) else "Hotel"
@@ -132,10 +159,10 @@ def build_event_list_item(event: Event, db: Optional[Session] = None) -> EventLi
         venue=event.venue,
         service_format=getattr(event, "service_format", "Buffet"),
         event_date=event.event_date,
-        expected_guests=event.expected_guests,
-        actual_guests=event.actual_guests,
+        expected_guests=event.expected_guests or guest_count,
+        actual_guests=event.actual_guests or guest_count,
         status=event.status,
-        is_archived=getattr(event, "is_archived", False),
+        is_archived=bool(getattr(event, "is_archived", False) or False),
         notes=event.notes,
         created_at=event.created_at,
         updated_at=event.updated_at,
@@ -154,6 +181,9 @@ def build_event_list_item(event: Event, db: Optional[Session] = None) -> EventLi
 
 def build_event_detail(event: Event, db: Optional[Session] = None) -> EventDetailResponse:
     event_foods_response: List[EventFoodResponse] = []
+    sessions_list: List[str] = []
+    sessions_seen = set()
+
     for ef in event.event_foods:
         food_item = ef.food_item
         prep = float(ef.prepared_weight_kg or 0.0)
@@ -179,6 +209,9 @@ def build_event_detail(event: Event, db: Optional[Session] = None) -> EventDetai
             item_cost = scan_cost + scale_cost
 
         waste_pct = calculate_waste_percentage(total_item_waste, prep)
+        food_name = food_item.name if food_item else "Unknown Food"
+        food_cat = food_item.category if food_item else "Main Course"
+        is_veg = any(w in food_name.lower() for w in ["veg", "paneer", "dal", "idly", "rice", "salad", "roti", "sweet", "sambar", "dosa", "vada", "curd"])
 
         waste_records_resp = [
             WasteRecordResponse(
@@ -203,15 +236,21 @@ def build_event_detail(event: Event, db: Optional[Session] = None) -> EventDetai
             for w in ef.waste_records
         ]
 
+        cons = max(0.0, round(prep - total_item_waste, 2))
         event_foods_response.append(
             EventFoodResponse(
                 id=ef.id,
                 event_id=ef.event_id,
                 food_item_id=ef.food_item_id,
-                food_item_name=food_item.name if food_item else "Unknown Food",
-                food_item_category=food_item.category if food_item else "Other",
+                food_item_name=food_name,
+                food_item_category=food_cat,
                 food_item_unit=food_item.default_unit if food_item else "kg",
+                food_type="Veg" if is_veg else "Non-Veg",
+                session="Main Service",
                 prepared_weight_kg=prep,
+                consumed_weight_kg=cons,
+                leftover_weight_kg=round(total_item_waste, 2),
+                reused_weight_kg=0.0,
                 estimated_cost_per_kg=cost_kg,
                 notes=ef.notes,
                 net_waste_kg=round(total_item_waste, 2),
@@ -224,30 +263,59 @@ def build_event_detail(event: Event, db: Optional[Session] = None) -> EventDetai
     total_prepared_kg = round(sum(float(ef.prepared_weight_kg or 0.0) for ef in event.event_foods), 2)
     total_waste_kg = round(sum(ef_r.net_waste_kg for ef_r in event_foods_response), 2)
     total_waste_cost = round(sum(ef_r.waste_cost for ef_r in event_foods_response), 2)
+    total_leftover_kg = total_waste_kg
+    total_reuse_kg = 0.0
+    total_consumed_kg = max(0.0, round(total_prepared_kg - total_leftover_kg, 2))
 
     if len(event_foods_response) == 0 and db is not None:
-        from app.models.analytics_record import AnalyticsRecord
         ar_list = db.query(AnalyticsRecord).filter(
-            AnalyticsRecord.event_id == event.id,
             AnalyticsRecord.is_archived == False
-        ).all()
+        ).filter(
+            or_(
+                AnalyticsRecord.event_id == event.id,
+                func.lower(AnalyticsRecord.event_name) == func.lower(event.name),
+                (
+                    (AnalyticsRecord.hotel_id == event.hotel_id) &
+                    (AnalyticsRecord.record_date == event.event_date) &
+                    (func.lower(event.name).contains(func.lower(AnalyticsRecord.session)))
+                )
+            )
+        ).order_by(AnalyticsRecord.id.asc()).all()
+
         for idx, r in enumerate(ar_list):
             prep = float(r.actual_production_kg or 0.0)
             waste = float(r.total_waste_kg or 0.0)
+            cons = float(r.actual_consumption_kg or (max(0.0, prep - waste)))
+            leftover = float(r.total_leftover_kg or waste)
+            reuse = float(r.reuse_quantity_kg or 0.0)
             cost = float(r.waste_cost or 0.0)
             cost_per_kg = float(r.item_cost or (cost / waste if waste > 0 else 0.0))
             waste_pct = calculate_waste_percentage(waste, prep)
+            sess = r.session or "Service"
+            if sess not in sessions_seen:
+                sessions_seen.add(sess)
+                sessions_list.append(sess)
+
+            d_name = r.dish_name or "Unknown Dish"
+            is_veg = ("veg" in (r.food_type or "").lower()) or any(w in d_name.lower() for w in ["veg", "paneer", "dal", "idly", "rice", "salad", "roti", "sweet", "sambar", "dosa", "vada", "curd"])
+            food_type = "Veg" if is_veg else "Non-Veg"
+
             event_foods_response.append(
                 EventFoodResponse(
                     id=idx + 1,
                     event_id=event.id,
                     food_item_id=idx + 1,
-                    food_item_name=r.dish_name or "Unknown Dish",
+                    food_item_name=d_name,
                     food_item_category=r.dish_category or "Main Course",
                     food_item_unit=r.uom or "kg",
+                    food_type=food_type,
+                    session=sess,
                     prepared_weight_kg=prep,
+                    consumed_weight_kg=cons,
+                    leftover_weight_kg=leftover,
+                    reused_weight_kg=reuse,
                     estimated_cost_per_kg=round(cost_per_kg, 2),
-                    notes=f"Session: {r.session or 'Service'} • Consumed: {r.actual_consumption_kg or 0} kg • Reused: {r.reuse_quantity_kg or 0} kg",
+                    notes=f"Session: {sess} | Consumed: {cons} kg | Reused: {reuse} kg",
                     net_waste_kg=round(waste, 2),
                     waste_percentage=waste_pct,
                     waste_cost=round(cost, 2),
@@ -256,36 +324,73 @@ def build_event_detail(event: Event, db: Optional[Session] = None) -> EventDetai
             )
         if ar_list:
             total_prepared_kg = round(sum(float(r.actual_production_kg or 0.0) for r in ar_list), 2)
+            total_consumed_kg = round(sum(float(r.actual_consumption_kg or 0.0) for r in ar_list), 2)
+            total_leftover_kg = round(sum(float(r.total_leftover_kg or 0.0) for r in ar_list), 2)
+            total_reuse_kg = round(sum(float(r.reuse_quantity_kg or 0.0) for r in ar_list), 2)
             total_waste_kg = round(sum(float(r.total_waste_kg or 0.0) for r in ar_list), 2)
             total_waste_cost = round(sum(float(r.waste_cost or 0.0) for r in ar_list), 2)
 
     overall_waste_percentage = calculate_waste_percentage(total_waste_kg, total_prepared_kg)
     guest_count = event.actual_guests if event.actual_guests > 0 else event.expected_guests
+    if guest_count <= 0 and event_foods_response and db is not None:
+        ar_pax = db.query(func.max(AnalyticsRecord.pax)).filter(
+            AnalyticsRecord.is_archived == False
+        ).filter(
+            or_(
+                AnalyticsRecord.event_id == event.id,
+                func.lower(AnalyticsRecord.event_name) == func.lower(event.name),
+                (
+                    (AnalyticsRecord.hotel_id == event.hotel_id) &
+                    (AnalyticsRecord.record_date == event.event_date) &
+                    (func.lower(event.name).contains(func.lower(AnalyticsRecord.session)))
+                )
+            )
+        ).scalar()
+        if ar_pax:
+            guest_count = int(ar_pax)
+
     waste_per_guest_kg = calculate_waste_per_guest(total_waste_kg, guest_count)
     waste_per_guest_grams = round(waste_per_guest_kg * 1000.0, 1)
+    hotel_name = event.hotel.name if (hasattr(event, "hotel") and event.hotel) else "Hotel"
+
+    completeness = 100.0
+    if guest_count <= 0: completeness -= 25.0
+    if total_prepared_kg <= 0: completeness -= 25.0
+    if len(event_foods_response) <= 0: completeness -= 25.0
 
     return EventDetailResponse(
         id=event.id,
         hotel_id=event.hotel_id,
+        hotel_name=hotel_name,
         name=event.name,
         event_type=event.event_type,
+        event_subtype=getattr(event, "event_subtype", None),
+        client_name=getattr(event, "client_name", None),
         venue=event.venue,
+        service_format=getattr(event, "service_format", "Buffet"),
         event_date=event.event_date,
-        expected_guests=event.expected_guests,
-        actual_guests=event.actual_guests,
+        expected_guests=event.expected_guests or guest_count,
+        actual_guests=event.actual_guests or guest_count,
         status=event.status,
+        is_archived=bool(getattr(event, "is_archived", False) or False),
         notes=event.notes,
         created_at=event.created_at,
         updated_at=event.updated_at,
         total_prepared_kg=total_prepared_kg,
+        total_consumed_kg=total_consumed_kg,
+        total_leftover_kg=total_leftover_kg,
+        total_reuse_kg=total_reuse_kg,
         total_waste_kg=total_waste_kg,
         waste_percentage=overall_waste_percentage,
         total_waste_cost=total_waste_cost,
         waste_per_guest_kg=waste_per_guest_kg,
         waste_per_guest_grams=waste_per_guest_grams,
         food_items_count=len(event_foods_response),
+        data_completeness_pct=max(0.0, round(completeness, 1)),
+        sessions=sessions_list,
         event_foods=event_foods_response,
     )
+
 
 @router.get("/categories", response_model=List[EventCategoryResponse])
 def get_event_categories(
@@ -372,7 +477,7 @@ def get_events(
     )
 
     if not include_archived:
-        query = query.filter(Event.is_archived == False)
+        query = query.filter(or_(Event.is_archived == False, Event.is_archived.is_(None)))
 
     if hotel_id and hotel_id > 0:
         query = query.filter(Event.hotel_id == hotel_id)
@@ -421,11 +526,29 @@ def create_event(
     hotel_obj = db.query(Hotel).filter(Hotel.id == target_hotel_id).first()
     hotel_name = hotel_obj.name if hotel_obj else "Dolphin Hotels"
 
+    target_event_type = payload.event_type
+    target_subtype = payload.event_subtype
+    if target_event_type and target_event_type.strip().lower() == "custom" and target_subtype and target_subtype.strip():
+        custom_name = target_subtype.strip()
+        existing_cat = db.query(EventCategory).filter(
+            func.lower(EventCategory.name) == custom_name.lower(),
+            (EventCategory.hotel_id == target_hotel_id) | (EventCategory.hotel_id.is_(None))
+        ).first()
+        if not existing_cat:
+            db.add(EventCategory(
+                name=custom_name,
+                code=custom_name.lower().replace(" ", "_")[:50],
+                description=f"Custom banquet category: {custom_name}",
+                is_builtin=False,
+                hotel_id=target_hotel_id,
+            ))
+            db.flush()
+
     new_event = Event(
         hotel_id=target_hotel_id,
         name=payload.name.strip(),
-        event_type=payload.event_type,
-        event_subtype=payload.event_subtype,
+        event_type=target_event_type,
+        event_subtype=target_subtype,
         client_name=payload.client_name.strip() if payload.client_name else None,
         venue=payload.venue.strip() if payload.venue else None,
         service_format=payload.service_format or "Buffet",
@@ -520,6 +643,10 @@ def create_event(
 
     db.commit()
     db.refresh(new_event)
+    try:
+        sync_event_to_analytics_records(db, new_event.id)
+    except Exception:
+        pass
     return build_event_detail(new_event, db=db)
 
 @router.get("/{event_id}", response_model=EventDetailResponse)
@@ -613,6 +740,10 @@ def update_event(
 
     db.commit()
     db.refresh(event)
+    try:
+        sync_event_to_analytics_records(db, event_id)
+    except Exception:
+        pass
     return build_event_detail(event, db=db)
 
 @router.get("/{event_id}/delete-impact")
