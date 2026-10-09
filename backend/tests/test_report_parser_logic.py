@@ -22,7 +22,7 @@ def auth_headers():
     return {"Authorization": f"Bearer {token}"}
 
 def test_workbook_analysis_and_math_integrity():
-    sample_path = "backend/sample_data/Daily report.xlsx"
+    sample_path = "backend/sample_data/Daily report.xlsx" if os.path.exists("backend/sample_data/Daily report.xlsx") else "sample_data/Daily report.xlsx"
     assert os.path.exists(sample_path)
     with open(sample_path, "rb") as f:
         content = f.read()
@@ -70,7 +70,7 @@ Gulab Jamun,Dinner,150,150.0,0.5,120.0
     assert records[0]["item_cost"] == 450.0
 
 def test_api_upload_preview_and_confirm(auth_headers):
-    sample_path = "backend/sample_data/Daily report.xlsx"
+    sample_path = "backend/sample_data/Daily report.xlsx" if os.path.exists("backend/sample_data/Daily report.xlsx") else "sample_data/Daily report.xlsx"
     with open(sample_path, "rb") as f:
         file_bytes = f.read()
 

@@ -329,6 +329,7 @@ export interface DataQualityReport {
   total_records: number;
   valid_records: number;
   warning_count: number;
+  unreconciled_count?: number;
   warnings: {
     record_id?: string | number;
     item?: string;
@@ -398,7 +399,236 @@ export interface AnalyticsOverviewResponse {
   financial_impact: FinancialImpactData;
   insights: ManagementInsight[];
   data_quality: DataQualityReport;
+  mass_balance_audit?: MassBalanceAuditData;
+  date_coverage?: DateCoverageData;
   raw_records: NormalizedFoodRecord[];
+}
+
+export interface MassBalanceAuditData {
+  is_reconciled: boolean;
+  total_prepared_kg: number;
+  total_consumed_kg: number;
+  total_leftover_kg: number;
+  total_reuse_kg: number;
+  total_waste_kg: number;
+  total_other_disposition_kg: number;
+  production_variance_kg: number;
+  leftover_variance_kg: number;
+  unaccounted_discrepancy_records: {
+    record_id: string | number;
+    dish_name: string;
+    hotel_name: string;
+    event_name: string;
+    session: string;
+    date: string;
+    leftover_kg: number;
+    reuse_kg: number;
+    waste_kg: number;
+    other_disposition_kg: number;
+    unaccounted_variance_kg: number;
+    status: string;
+  }[];
+  audit_note: string;
+}
+
+export interface DateCoverageData {
+  calendar_start: string | null;
+  calendar_end: string | null;
+  calendar_days_count: number;
+  recorded_days_count: number;
+  unrecorded_days_count: number;
+  coverage_pct: number;
+  recorded_dates: string[];
+  is_sparse: boolean;
+  notes: string;
+}
+
+export interface HotelAnalyticsSummary {
+  hotel_name: string;
+  hotel_id?: number | null;
+  location: string;
+  total_records: number;
+  dates_recorded_count: number;
+  date_range: string;
+  total_events: number;
+  total_sessions: number;
+  total_pax: number;
+  total_prepared_kg: number;
+  total_consumed_kg: number;
+  total_leftover_kg: number;
+  total_reuse_kg: number;
+  total_waste_kg: number;
+  waste_rate_pct: number;
+  waste_per_guest_g: number;
+  consumed_per_guest_g: number;
+  total_waste_cost: number;
+  waste_cost_per_guest: number;
+  mass_balance_reconciled: boolean;
+  production_variance_kg: number;
+  leftover_variance_kg: number;
+  data_quality_score_pct: number;
+  data_quality_rating: string;
+  performance_status: string;
+}
+
+export interface HotelAnalyticsResponse {
+  hotels: HotelAnalyticsSummary[];
+  portfolio_benchmark: {
+    total_active_hotels: number;
+    portfolio_waste_rate_pct: number;
+    portfolio_waste_per_guest_g: number;
+    total_pax_served: number;
+    total_waste_cost: number;
+  };
+}
+
+export interface EventTypeAnalyticsCategory {
+  category: string;
+  event_count: number;
+  total_records: number;
+  total_pax: number;
+  total_prepared_kg: number;
+  total_consumed_kg: number;
+  total_waste_kg: number;
+  waste_rate_pct: number;
+  waste_per_guest_g: number;
+  total_waste_cost: number;
+  waste_cost_per_guest: number;
+  sample_size_adequate: boolean;
+  sample_size_note: string;
+  subtypes: {
+    subtype: string;
+    record_count: number;
+    pax: number;
+    prepared_kg: number;
+    waste_kg: number;
+    waste_rate_pct: number;
+    waste_per_guest_g: number;
+    waste_cost: number;
+  }[];
+  events: {
+    event_name: string;
+    hotel_name: string;
+    date: string;
+    subtype: string;
+    pax: number;
+    prepared_kg: number;
+    consumed_kg: number;
+    waste_kg: number;
+    waste_rate_pct: number;
+    waste_per_guest_g: number;
+    waste_cost: number;
+    compared_to_benchmark: number | null;
+  }[];
+}
+
+export interface EventTypesAnalyticsResponse {
+  categories: EventTypeAnalyticsCategory[];
+  classification_system: {
+    canonical_categories: string[];
+    rule: string;
+    min_sample_size: number;
+  };
+}
+
+export interface EodReportSessionItem {
+  session: string;
+  dish_count: number;
+  pax: number;
+  prepared_kg: number;
+  consumed_kg: number;
+  leftover_kg: number;
+  reuse_kg: number;
+  waste_kg: number;
+  waste_rate_pct: number;
+  waste_per_guest_g: number;
+  waste_cost_inr: number;
+}
+
+export interface EodReportDishItem {
+  dish_name: string;
+  category: string;
+  prepared_kg: number;
+  waste_kg: number;
+  waste_cost: number;
+  waste_pct: number;
+}
+
+export interface EodReportResponse {
+  has_data: boolean;
+  report_date: string;
+  hotel_name: string;
+  generated_at?: string;
+  message?: string;
+  total_guests?: number;
+  total_sessions?: number;
+  total_dishes_served?: number;
+  summary?: {
+    total_prepared_kg: number;
+    total_consumed_kg: number;
+    total_leftover_kg: number;
+    total_reuse_kg: number;
+    total_waste_kg: number;
+    waste_rate_pct: number;
+    waste_per_guest_g: number;
+    total_waste_cost_inr: number;
+    waste_cost_per_guest: number;
+  };
+  sessions?: EodReportSessionItem[];
+  top_wasted_dishes?: EodReportDishItem[];
+  mass_balance?: {
+    is_reconciled: boolean;
+    production_variance_kg: number;
+    leftover_variance_kg: number;
+    variance_status: string;
+  };
+  data_quality?: {
+    score_pct: number;
+    rating: string;
+    unverified_entries: number;
+  };
+  sign_off?: {
+    executive_chef: {
+      title: string;
+      status: string;
+      date: string;
+    };
+    fb_manager: {
+      title: string;
+      status: string;
+      date: string;
+    };
+  };
+}
+
+export interface DataQualityIssueItem {
+  id: string;
+  record_id: string | number;
+  severity: "Critical" | "High" | "Medium" | "Low";
+  issue_type: string;
+  hotel_name: string;
+  event_name: string;
+  dish_name: string;
+  session: string;
+  date: string;
+  description: string;
+  suggested_action: string;
+}
+
+export interface DataQualityCenterResponse {
+  overall_score_pct: number;
+  rating: string;
+  total_records_audited: number;
+  audit_summary: {
+    missing_hotel_count: number;
+    missing_session_count: number;
+    missing_pax_count: number;
+    unreconciled_mass_balance_count: number;
+    missing_cost_count: number;
+    unverified_count: number;
+  };
+  total_issues_found: number;
+  issues_feed: DataQualityIssueItem[];
 }
 
 export interface UploadConfirmSummaryDish {

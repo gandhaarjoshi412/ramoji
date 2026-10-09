@@ -1,7 +1,8 @@
 from datetime import datetime, timezone, date
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, Text, Boolean
 from sqlalchemy.orm import relationship
 from app.database import Base
+
 
 class AnalyticsRecord(Base):
     __tablename__ = "analytics_records"
@@ -58,5 +59,12 @@ class AnalyticsRecord(Base):
     source_row = Column(Integer, nullable=True)
     import_id = Column(String(100), nullable=True, index=True)
     confidence_score = Column(Float, default=1.0)
+    reconciliation_variance_kg = Column(Float, default=0.0)
+    other_disposition_kg = Column(Float, default=0.0)
+    event_subtype = Column(String(100), nullable=True)
+    client_name = Column(String(255), nullable=True)
+    is_archived = Column(Boolean, default=False, nullable=False, index=True)
+    is_verified = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+

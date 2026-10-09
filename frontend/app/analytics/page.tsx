@@ -12,6 +12,9 @@ import {
 } from "@/types/analytics";
 
 import { GlobalFilterBar } from "@/components/analytics/GlobalFilterBar";
+import { AnalyticsSubtabsNav, AnalyticsSubtabId } from "@/components/analytics/AnalyticsSubtabsNav";
+
+// Existing modular analytics sections
 import { ExecutiveKpiGrid } from "@/components/analytics/ExecutiveKpiGrid";
 import { ExecutiveOverviewSection } from "@/components/analytics/ExecutiveOverviewSection";
 import { DailyTrendsSection } from "@/components/analytics/DailyTrendsSection";
@@ -29,6 +32,13 @@ import { AuditAndDataQualitySection } from "@/components/analytics/AuditAndDataQ
 import { DetailedDataTable } from "@/components/analytics/DetailedDataTable";
 import { ExcelUploadModal } from "@/components/analytics/ExcelUploadModal";
 
+// Dedicated subtab views
+import { HotelsSubtab } from "@/components/analytics/subtabs/HotelsSubtab";
+import { EventsSubtab } from "@/components/analytics/subtabs/EventsSubtab";
+import { EventTypesSubtab } from "@/components/analytics/subtabs/EventTypesSubtab";
+import { ReportsSubtab } from "@/components/analytics/subtabs/ReportsSubtab";
+import { DataQualitySubtab } from "@/components/analytics/subtabs/DataQualitySubtab";
+
 import {
   Sparkles,
   BarChart3,
@@ -41,6 +51,16 @@ import {
   ArrowRight,
   CheckCircle2,
   X,
+  Building2,
+  CalendarDays,
+  UtensilsCrossed,
+  Tags,
+  Clock,
+  TrendingDown,
+  Recycle,
+  Coins,
+  FileSpreadsheet,
+  ShieldAlert,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -59,6 +79,7 @@ export default function AnalyticsPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
 
+  const [activeTab, setActiveTab] = useState<AnalyticsSubtabId>("overview");
   const [filters, setFilters] = useState<AnalyticsFilterParams>(DEFAULT_FILTERS);
   const [data, setData] = useState<AnalyticsOverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -148,47 +169,55 @@ export default function AnalyticsPage() {
 
   // CSV Export
   const handleExportCsv = () => {
-    if (!data?.raw_records || data.raw_records.length === 0) return;
+    if (!data?.raw_records?.length) return;
     const headers = [
+      "Record ID",
       "Date",
       "Hotel",
-      "Event",
+      "Event Name",
       "Session",
+      "Service Format",
+      "Pax",
       "Dish Name",
       "Category",
-      "Estimated (Kg)",
-      "Cooked (Kg)",
-      "Consumed (Kg)",
-      "Leftover (Kg)",
-      "Reused (Kg)",
-      "Waste (Kg)",
-      "Waste %",
+      "Cooked (kg)",
+      "Consumed (kg)",
+      "Leftover (kg)",
+      "Reused (kg)",
+      "Discarded Waste (kg)",
       "Waste Cost (INR)",
-      "Waste Per Head (g)",
+      "Waste %",
     ];
+
     const rows = data.raw_records.map((r) => [
-      `"${r.date}"`,
+      r.id,
+      r.date,
       `"${r.hotel}"`,
       `"${r.event_name || ""}"`,
       `"${r.session}"`,
-      `"${r.dish_name.replace(/"/g, '""')}"`,
-      `"${r.dish_category || ""}"`,
-      r.estimated_production_kg.toFixed(2),
-      r.actual_production_kg.toFixed(2),
-      r.actual_consumption_kg.toFixed(2),
-      r.total_leftover_kg.toFixed(2),
-      r.reuse_quantity_kg.toFixed(2),
-      r.total_waste_kg.toFixed(2),
-      r.waste_percentage.toFixed(2),
-      r.waste_cost.toFixed(2),
-      r.waste_per_head_grams.toFixed(1),
+      `"${r.service_type}"`,
+      r.pax,
+      `"${r.dish_name}"`,
+      `"${r.dish_category}"`,
+      r.actual_production_kg,
+      r.actual_consumption_kg,
+      r.total_leftover_kg,
+      r.reuse_quantity_kg,
+      r.total_waste_kg,
+      r.waste_cost,
+      r.waste_percentage,
     ]);
 
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
+      [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Food_Waste_Analytics_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute(
+      "download",
+      `Platesight_Culinary_Audit_${new Date().toISOString().split("T")[0]}.csv`
+    );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -198,31 +227,14 @@ export default function AnalyticsPage() {
     handleExportCsv();
   };
 
-  if (authLoading || (loading && !data)) {
-    return (
-      <div className="min-h-[70vh] flex flex-col items-center justify-center space-y-4">
-        <div className="w-10 h-10 border-3 border-slate-200 border-t-emerald-600 rounded-full animate-spin" />
-        <div className="text-center space-y-1">
-          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
-            Loading Hospitality Intelligence...
-          </h3>
-          <p className="text-xs text-slate-400">
-            Ingesting culinary production, leftover returns, and portion yield balances
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   const contextDisplay = data?.filter_context
-    ? `Analytics for: ${data.filter_context.hotel_name} • ${data.filter_context.date_display} • ${data.filter_context.active_sessions}`
+    ? `Scope: ${data.filter_context.hotel_name} • ${data.filter_context.date_display} • ${data.filter_context.active_sessions}`
     : "Consolidated Operations Intelligence";
 
   return (
-    <div className="space-y-8 pb-20">
+    <div className="space-y-6 pb-20">
       {/* Executive Header Banner */}
       <div className="rounded-2xl p-7 sm:p-9 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white border border-slate-800/80 shadow-xl relative overflow-hidden">
-        {/* Subtle Ambient Emerald Aura */}
         <div className="absolute top-0 right-0 w-96 h-96 bg-[radial-gradient(ellipse_at_center,rgba(16,185,129,0.15)_0%,transparent_70%)] pointer-events-none" />
 
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -232,7 +244,7 @@ export default function AnalyticsPage() {
               Executive Food Intelligence & Yield Optimization
             </div>
             <h1 className="font-serif text-2xl sm:text-4xl font-bold text-white tracking-tight">
-              Culinary Analytics & Waste Intelligence
+              Culinary Analytics & Operations Intelligence
             </h1>
             <p className="text-xs sm:text-sm text-slate-300 font-normal leading-relaxed">
               Transforming raw kitchen production, banquet buffet returns, and unconsumed food records into actionable operational decisions.
@@ -250,7 +262,7 @@ export default function AnalyticsPage() {
 
             <button
               onClick={() => setUploadModalOpen(true)}
-              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer active:scale-95"
             >
               <Upload className="w-4 h-4" />
               Upload Report (.xlsx)
@@ -259,126 +271,7 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
-      {/* Quick Navigation Tabs Switcher */}
-      <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200/80 w-fit no-print">
-        <Link
-          href="/dashboard"
-          className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-white/60 transition-all flex items-center gap-2"
-        >
-          <ChefHat className="w-3.5 h-3.5 text-slate-500" />
-          Culinary Overview
-        </Link>
-        <button
-          className="px-4 py-2 rounded-xl text-xs font-bold bg-white text-slate-900 shadow-xs border border-slate-200/80 flex items-center gap-2"
-        >
-          <BarChart3 className="w-3.5 h-3.5 text-emerald-600" />
-          Analytics Dashboard
-        </button>
-      </div>
-
-      {/* Detailed Excel Ingestion Confirmation Banner (Live Database Commit) */}
-      {uploadConfirmation && (
-        <div className="bg-gradient-to-r from-emerald-50 via-teal-50/70 to-emerald-50 border-2 border-emerald-300 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3 animate-in fade-in slide-in-from-top-3">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                    Live Excel Ingestion Confirmed
-                  </span>
-                  <span className="text-xs text-slate-500">
-                    {uploadConfirmation.summary?.imported_at
-                      ? new Date(uploadConfirmation.summary.imported_at).toLocaleTimeString("en-IN", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })
-                      : "Just now"}
-                  </span>
-                </div>
-                <h3 className="font-serif text-base font-bold text-slate-900 mt-0.5">
-                  {uploadConfirmation.filename} Successfully Ingested & Committed
-                </h3>
-                <p className="text-xs text-emerald-900 font-semibold">
-                  +{uploadConfirmation.inserted_records} operational food records added to the database ledger. All analytics calculations updated.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 self-end sm:self-auto">
-              {uploadConfirmation.summary?.hotels?.[0] && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleFilterChange({
-                      hotel: uploadConfirmation.summary?.hotels?.[0] || "all",
-                      start_date: uploadConfirmation.summary?.dates?.[0],
-                      end_date: uploadConfirmation.summary?.dates?.[0],
-                      date_preset: uploadConfirmation.summary?.dates?.[0] ? "custom" : "all",
-                    });
-                  }}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Filter to This Report ({uploadConfirmation.summary.hotels[0]})
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setUploadConfirmation(null)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
-                title="Dismiss confirmation banner"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Quick Metrics Badges */}
-          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 pt-1 text-xs">
-            <div className="bg-white/80 border border-emerald-200/80 rounded-lg p-2">
-              <span className="text-[10px] uppercase font-bold text-slate-400 block">Property</span>
-              <span className="font-bold text-slate-900 truncate block">
-                {uploadConfirmation.summary?.hotels?.join(", ") || "N/A"}
-              </span>
-            </div>
-            <div className="bg-white/80 border border-emerald-200/80 rounded-lg p-2">
-              <span className="text-[10px] uppercase font-bold text-slate-400 block">Date</span>
-              <span className="font-bold text-slate-900 truncate block">
-                {uploadConfirmation.summary?.dates?.join(", ") || "N/A"}
-              </span>
-            </div>
-            <div className="bg-white/80 border border-emerald-200/80 rounded-lg p-2">
-              <span className="text-[10px] uppercase font-bold text-slate-400 block">Cooked</span>
-              <span className="font-bold text-slate-900 block">
-                {formatKg(uploadConfirmation.summary?.total_production_kg || 0)}
-              </span>
-            </div>
-            <div className="bg-white/80 border border-emerald-200/80 rounded-lg p-2">
-              <span className="text-[10px] uppercase font-bold text-emerald-700 block">Consumed</span>
-              <span className="font-bold text-emerald-800 block">
-                {formatKg(uploadConfirmation.summary?.total_consumption_kg || 0)}
-              </span>
-            </div>
-            <div className="bg-white/80 border border-emerald-200/80 rounded-lg p-2">
-              <span className="text-[10px] uppercase font-bold text-rose-700 block">Wasted</span>
-              <span className="font-bold text-rose-800 block">
-                {formatKg(uploadConfirmation.summary?.total_waste_kg || 0)}
-              </span>
-            </div>
-            <div className="bg-slate-900 text-white rounded-lg p-2">
-              <span className="text-[10px] uppercase font-bold text-slate-400 block">Waste Cost</span>
-              <span className="font-bold text-emerald-400 block">
-                {formatINR(uploadConfirmation.summary?.total_waste_cost || 0)}
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Global Filter Bar */}
+      {/* Persistent Global Filter Bar */}
       <GlobalFilterBar
         filters={filters}
         onChange={handleFilterChange}
@@ -396,6 +289,14 @@ export default function AnalyticsPage() {
         isLoading={loading}
       />
 
+      {/* 11 Intuitive Responsive Horizontal Subtabs Navigation (Part E) */}
+      <AnalyticsSubtabsNav
+        activeTab={activeTab}
+        onChangeTab={setActiveTab}
+        dataQualityScore={data?.data_quality?.overall_score_pct}
+        unreconciledCount={data?.data_quality?.unreconciled_count}
+      />
+
       {error && (
         <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -411,104 +312,211 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      {/* If Data is available, render all 12 analytical layers */}
-      {data && (
-        <>
-          {/* 1. Executive KPI Cards Grid */}
-          <ExecutiveKpiGrid kpis={data.kpis} />
-
-          {/* 2. Management AI Insights & Executive Summary */}
-          <ManagementInsightsSection
-            executiveSummary={data.executive_summary}
-            insights={data.insights}
-          />
-
-          {/* 3. Executive Waste Overview: Horizontal Food Flow & Composition */}
-          <ExecutiveOverviewSection
-            foodFlow={data.food_flow}
-            wasteCostInr={data.financial_impact.total_waste_cost}
-          />
-
-          {/* 4. Date-Wise Daily Trends */}
-          <DailyTrendsSection trends={data.daily_trends} />
-
-          {/* 5. Session & Meal Shift Operations */}
-          <SessionAnalyticsSection sessions={data.session_comparison} />
-
-          {/* 6. Service Type Comparison (Buffet, À la carte, Banquet, Room Service) */}
-          <ServiceTypeAnalyticsSection serviceTypes={data.service_type_comparison} />
-
-          {/* 7. Banquet Event Performance Table with configurable thresholds */}
-          <EventPerformanceSection events={data.event_performance} />
-
-          {/* 8. Dish Intelligence & Yield Rankings */}
-          <DishIntelligenceSection
-            topWasted={data.top_wasted_dishes}
-            consistent={data.consistent_dishes}
-            overProduction={data.over_production_alerts}
-            underProduction={data.under_production_alerts}
-            onSelectDish={handleSelectDish}
-          />
-
-          {/* 9. Pareto 80/20 Analysis */}
-          <ParetoSection
-            paretoItems={data.pareto_analysis}
-            totalWasteKg={data.kpis.total_food_waste_kg.current}
-          />
-
-          {/* 10. Waste Heatmap & Day-of-Week Trends */}
-          <WasteHeatmapSection
-            heatmapData={data.heatmap}
-            dayOfWeekData={data.day_of_week_analysis}
-          />
-
-          {/* 11. Leftover Separation & Food Reuse Diversion */}
-          <LeftoverReuseSection
-            totalProductionKg={data.kpis.total_food_prepared_kg.current}
-            buffetLeftoverKg={data.food_flow.buffet_leftover_kg}
-            kitchenLeftoverKg={data.food_flow.kitchen_leftover_kg}
-            totalLeftoverKg={data.food_flow.total_leftover_kg}
-            reuseKg={data.food_flow.reuse_kg}
-            finalWasteKg={data.food_flow.final_waste_kg}
-          />
-
-          {/* 12. Culinary Financial Impact & Savings Simulator */}
-          <FinancialImpactSection financials={data.financial_impact} />
-
-          {/* 13. Data Quality & Audit Lineage */}
-          <AuditAndDataQualitySection report={data.data_quality} />
-
-          {/* 14. Itemized Audit Ledger Data Table */}
-          <DetailedDataTable
-            records={data.raw_records}
-            onExportCsv={handleExportCsv}
-            onExportExcel={handleExportExcel}
-          />
-        </>
-      )}
-
-      {/* Empty State if raw_records is 0 */}
-      {data && data.raw_records.length === 0 && (
-        <div className="hotel-card p-12 bg-white border border-slate-200 text-center space-y-3">
-          <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
-            <BarChart3 className="w-6 h-6" />
+      {/* Skeleton Loading State (Part K: No layout shift, no fake zeros) */}
+      {authLoading || (loading && !data) ? (
+        <div className="space-y-6 animate-pulse">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-28 bg-slate-100 rounded-2xl border border-slate-200/80" />
+            ))}
           </div>
-          <h3 className="font-serif text-lg font-bold text-slate-800">
-            No analytics available for the selected filters
-          </h3>
-          <p className="text-xs text-slate-500 max-w-md mx-auto">
-            Try expanding the date range, selecting "All Hotels", or clearing the category filters. You can also upload a new daily report.
-          </p>
-          <div className="pt-2">
-            <button
-              onClick={handleResetFilters}
-              className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer"
-            >
-              Reset All Filters
-            </button>
-          </div>
+          <div className="h-64 bg-slate-100 rounded-2xl border border-slate-200/80" />
+          <div className="h-48 bg-slate-100 rounded-2xl border border-slate-200/80" />
         </div>
-      )}
+      ) : data ? (
+        <div className="space-y-6">
+          {/* TAB 1: OVERVIEW */}
+          {activeTab === "overview" && (
+            <div className="space-y-6">
+              {/* Core Headline KPI Cards */}
+              <ExecutiveKpiGrid kpis={data.kpis} />
+
+              {/* Actionable Recommendations & Root-Cause Observations */}
+              <ManagementInsightsSection
+                executiveSummary={data.executive_summary}
+                insights={data.insights}
+              />
+
+              {/* Horizontal Food Mass Flow (Cooked -> Eaten -> Leftover -> Reused -> Discarded) */}
+              <ExecutiveOverviewSection
+                foodFlow={data.food_flow}
+                wasteCostInr={data.financial_impact.total_waste_cost}
+              />
+
+              {/* Quick links to deeper subtabs */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                <button
+                  onClick={() => setActiveTab("hotels")}
+                  className="p-4 bg-white hover:bg-slate-50 border border-slate-200 rounded-2xl text-left space-y-1 transition-all cursor-pointer shadow-xs group"
+                >
+                  <div className="flex items-center justify-between text-slate-800 font-bold text-xs">
+                    <span className="flex items-center gap-2">
+                      <Building2 className="w-4 h-4 text-emerald-600" />
+                      Property Deep Dive
+                    </span>
+                    <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:translate-x-1 transition-transform" />
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Compare Hotel Sahara, Hotel Sitara & Dolphin Hotels normalized metrics.
+                  </p>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab("events")}
+                  className="p-4 bg-white hover:bg-slate-50 border border-slate-200 rounded-2xl text-left space-y-1 transition-all cursor-pointer shadow-xs group"
+                >
+                  <div className="flex items-center justify-between text-slate-800 font-bold text-xs">
+                    <span className="flex items-center gap-2">
+                      <CalendarDays className="w-4 h-4 text-emerald-600" />
+                      Banquet Ledger & CRUD
+                    </span>
+                    <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:translate-x-1 transition-transform" />
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Create new events, enter dish quantities & inspect safe deletion impacts.
+                  </p>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab("data_quality")}
+                  className="p-4 bg-white hover:bg-slate-50 border border-slate-200 rounded-2xl text-left space-y-1 transition-all cursor-pointer shadow-xs group"
+                >
+                  <div className="flex items-center justify-between text-slate-800 font-bold text-xs">
+                    <span className="flex items-center gap-2">
+                      <ShieldAlert className="w-4 h-4 text-amber-600" />
+                      Audit & Data Quality Center
+                    </span>
+                    <ArrowRight className="w-3.5 h-3.5 text-slate-400 group-hover:translate-x-1 transition-transform" />
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Review formulaic health scores ({data.data_quality.overall_score_pct}%) & resolve discrepancies.
+                  </p>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: HOTELS */}
+          {activeTab === "hotels" && (
+            <HotelsSubtab
+              selectedHotel={filters.hotel || "all"}
+              onSelectHotel={(hotelName) => handleFilterChange({ hotel: hotelName })}
+              datePreset={filters.date_preset}
+              startDate={filters.start_date}
+              endDate={filters.end_date}
+            />
+          )}
+
+          {/* TAB 3: EVENTS */}
+          {activeTab === "events" && (
+            <EventsSubtab
+              selectedHotel={filters.hotel || "all"}
+              onSelectEvent={(evId) => handleFilterChange({ event_id: evId })}
+            />
+          )}
+
+          {/* TAB 4: EVENT TYPES */}
+          {activeTab === "event_types" && (
+            <EventTypesSubtab
+              selectedHotel={filters.hotel || "all"}
+              datePreset={filters.date_preset}
+              startDate={filters.start_date}
+              endDate={filters.end_date}
+            />
+          )}
+
+          {/* TAB 5: FOOD & DISHES */}
+          {activeTab === "food_dishes" && (
+            <div className="space-y-6">
+              <DishIntelligenceSection
+                topWasted={data.top_wasted_dishes}
+                consistent={data.consistent_dishes}
+                overProduction={data.over_production_alerts}
+                underProduction={data.under_production_alerts}
+                onSelectDish={handleSelectDish}
+              />
+
+              <ParetoSection
+                paretoItems={data.pareto_analysis}
+                totalWasteKg={data.kpis.total_food_waste_kg.current}
+              />
+            </div>
+          )}
+
+          {/* TAB 6: MEALS & SERVICE */}
+          {activeTab === "meals_service" && (
+            <div className="space-y-6">
+              <SessionAnalyticsSection sessions={data.session_comparison} />
+              <ServiceTypeAnalyticsSection serviceTypes={data.service_type_comparison} />
+            </div>
+          )}
+
+          {/* TAB 7: TRENDS & IMPROVEMENT */}
+          {activeTab === "trends" && (
+            <div className="space-y-6">
+              <DailyTrendsSection
+                trends={data.daily_trends}
+                dateCoverage={data.date_coverage}
+              />
+              <WasteHeatmapSection
+                heatmapData={data.heatmap}
+                dayOfWeekData={data.day_of_week_analysis}
+              />
+            </div>
+          )}
+
+          {/* TAB 8: WASTE & REUSE */}
+          {activeTab === "waste_reuse" && (
+            <div className="space-y-6">
+              <LeftoverReuseSection
+                totalProductionKg={data.kpis.total_food_prepared_kg.current}
+                buffetLeftoverKg={data.food_flow.buffet_leftover_kg}
+                kitchenLeftoverKg={data.food_flow.kitchen_leftover_kg}
+                totalLeftoverKg={data.food_flow.total_leftover_kg}
+                reuseKg={data.food_flow.reuse_kg}
+                finalWasteKg={data.food_flow.final_waste_kg}
+                massBalanceAudit={data.mass_balance_audit}
+              />
+            </div>
+          )}
+
+          {/* TAB 9: COSTS & SAVINGS */}
+          {activeTab === "costs_savings" && (
+            <div className="space-y-6">
+              <FinancialImpactSection financials={data.financial_impact} />
+            </div>
+          )}
+
+          {/* TAB 10: REPORTS */}
+          {activeTab === "reports" && (
+            <div className="space-y-6">
+              <ReportsSubtab
+                selectedHotel={filters.hotel || "all"}
+                rawRecords={data.raw_records}
+                onExportCsv={handleExportCsv}
+                onExportExcel={handleExportExcel}
+              />
+              <DetailedDataTable
+                records={data.raw_records}
+                onExportCsv={handleExportCsv}
+                onExportExcel={handleExportExcel}
+              />
+            </div>
+          )}
+
+          {/* TAB 11: DATA QUALITY */}
+          {activeTab === "data_quality" && (
+            <div className="space-y-6">
+              <DataQualitySubtab
+                selectedHotel={filters.hotel || "all"}
+                report={data.data_quality}
+                massBalanceAudit={data.mass_balance_audit}
+              />
+              <AuditAndDataQualitySection report={data.data_quality} />
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {/* Modals */}
       <DishDetailModal

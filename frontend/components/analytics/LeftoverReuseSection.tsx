@@ -2,7 +2,8 @@
 
 import React from "react";
 import { formatKg } from "@/lib/api";
-import { PackageOpen, Recycle, ShieldCheck, ArrowRight, CheckCircle2 } from "lucide-react";
+import { MassBalanceAuditData } from "@/types/analytics";
+import { PackageOpen, Recycle, ShieldCheck, ArrowRight, CheckCircle2, AlertTriangle } from "lucide-react";
 
 interface LeftoverReuseSectionProps {
   totalProductionKg: number;
@@ -11,6 +12,7 @@ interface LeftoverReuseSectionProps {
   totalLeftoverKg: number;
   reuseKg: number;
   finalWasteKg: number;
+  massBalanceAudit?: MassBalanceAuditData;
 }
 
 export const LeftoverReuseSection: React.FC<LeftoverReuseSectionProps> = ({
@@ -20,6 +22,7 @@ export const LeftoverReuseSection: React.FC<LeftoverReuseSectionProps> = ({
   totalLeftoverKg,
   reuseKg,
   finalWasteKg,
+  massBalanceAudit,
 }) => {
   const prod = totalProductionKg || 1;
   const leftoverRate = ((totalLeftoverKg / prod) * 100).toFixed(1);
@@ -120,6 +123,51 @@ export const LeftoverReuseSection: React.FC<LeftoverReuseSectionProps> = ({
           </p>
         </div>
       </div>
+
+      {/* Traceable Food Mass-Balance Audit (Master Prompt Part B / Example 1) */}
+      {massBalanceAudit && (
+        <div
+          className={`p-4 rounded-xl border text-xs space-y-2 ${
+            massBalanceAudit.is_reconciled
+              ? "bg-emerald-50/70 border-emerald-200 text-emerald-900"
+              : "bg-amber-50/80 border-amber-300 text-amber-900"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 font-bold">
+              {massBalanceAudit.is_reconciled ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+              )}
+              <span>Food Mass-Balance Conservation Law Audit</span>
+            </div>
+            <span className="font-mono text-[11px] font-bold">
+              Leftover Variance: {massBalanceAudit.leftover_variance_kg.toFixed(2)} kg
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] pt-1 border-t border-current/15">
+            <div>
+              <span className="opacity-75 block">Production Balance:</span>
+              <strong>
+                Cooked ({formatKg(massBalanceAudit.total_prepared_kg)}) = Eaten ({formatKg(massBalanceAudit.total_consumed_kg)}) + Leftover ({formatKg(massBalanceAudit.total_leftover_kg)})
+              </strong>
+            </div>
+            <div>
+              <span className="opacity-75 block">Leftover Disposition Balance:</span>
+              <strong>
+                Leftover ({formatKg(massBalanceAudit.total_leftover_kg)}) = Reused ({formatKg(massBalanceAudit.total_reuse_kg)}) + Waste ({formatKg(massBalanceAudit.total_waste_kg)})
+                {Math.abs(massBalanceAudit.leftover_variance_kg) > 0.05 && (
+                  <span className="text-amber-800 font-bold">
+                    {" "}• Variance: {massBalanceAudit.leftover_variance_kg.toFixed(2)} kg
+                  </span>
+                )}
+              </strong>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="p-3.5 bg-slate-50/80 rounded-xl border border-slate-200/60 text-xs text-slate-600 flex items-center gap-2">
         <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />

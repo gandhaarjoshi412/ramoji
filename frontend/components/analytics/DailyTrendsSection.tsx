@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { DailyTrendPoint } from "@/types/analytics";
+import { DailyTrendPoint, DateCoverageData } from "@/types/analytics";
 import { formatKg } from "@/lib/api";
 import {
   TrendingDown,
@@ -10,15 +10,20 @@ import {
   Activity,
   Layers,
   Sparkles,
+  Info,
 } from "lucide-react";
 
 interface DailyTrendsSectionProps {
   trends: DailyTrendPoint[];
+  dateCoverage?: DateCoverageData;
 }
 
 type ViewMode = "volume" | "waste_pct" | "waste_per_guest";
 
-export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({ trends }) => {
+export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
+  trends,
+  dateCoverage,
+}) => {
   const [viewMode, setViewMode] = useState<ViewMode>("volume");
   const [activeMetrics, setActiveMetrics] = useState({
     production: true,
@@ -159,6 +164,21 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({ trends }
           </button>
         </div>
       </div>
+
+      {/* Sparse Observation Timeline Disclosure (Master Prompt Part B / Example 3) */}
+      {dateCoverage?.is_sparse && (
+        <div className="p-3.5 bg-blue-50/80 border border-blue-200/80 rounded-xl flex items-start gap-2.5 text-xs text-blue-900 leading-relaxed">
+          <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-bold">Timeline Coverage Disclosure: </span>
+            <span>
+              Culinary shift data is recorded for{" "}
+              <strong>{dateCoverage.recorded_days_count}</strong> of{" "}
+              <strong>{dateCoverage.calendar_days_count}</strong> calendar days in this range ({dateCoverage.calendar_start} to {dateCoverage.calendar_end}). Unrecorded days are kept distinct and never assumed to have zero waste, preventing false continuous interpolation.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Metric Toggles (when Volume is active) */}
       {viewMode === "volume" && (

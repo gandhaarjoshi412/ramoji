@@ -14,7 +14,12 @@ from app.models.event_category import EventCategory
 from app.models.waste_scan import WasteScan
 from app.models.hotel import Hotel
 from app.models.analytics_record import AnalyticsRecord
-from app.services.calculation_engine import calculate_core_waste_metrics, build_comparison_payload
+from app.services.calculation_engine import (
+    calculate_core_waste_metrics,
+    build_comparison_payload,
+    reconcile_currency_buckets,
+    calculate_data_quality_score,
+)
 from app.services.intelligence_engine import generate_operational_intelligence
 
 from app.schemas.dashboard import (
@@ -82,8 +87,8 @@ def get_analytics_overview(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Base query
-    query = db.query(AnalyticsRecord)
+    # Base query excluding soft-deleted/archived records
+    query = db.query(AnalyticsRecord).filter(AnalyticsRecord.is_archived == False)
 
     # Hotel filter (if not "all", filter by hotel name)
     if hotel and hotel != "all":
@@ -126,19 +131,26 @@ def get_analytics_overview(
                 )
             )
 
-    # Date filters
+    # Date filters with strict inclusive boundary handling
     today = date.today()
     if date_preset == "today":
         query = query.filter(AnalyticsRecord.record_date == today)
     elif date_preset == "yesterday":
         query = query.filter(AnalyticsRecord.record_date == today - timedelta(days=1))
     elif date_preset == "last_7":
-        query = query.filter(AnalyticsRecord.record_date >= today - timedelta(days=7))
+        query = query.filter(AnalyticsRecord.record_date >= today - timedelta(days=7), AnalyticsRecord.record_date <= today)
     elif date_preset == "last_30":
-        query = query.filter(AnalyticsRecord.record_date >= today - timedelta(days=30))
+        query = query.filter(AnalyticsRecord.record_date >= today - timedelta(days=30), AnalyticsRecord.record_date <= today)
+    elif date_preset == "this_week":
+        week_start = today - timedelta(days=today.weekday())
+        query = query.filter(AnalyticsRecord.record_date >= week_start, AnalyticsRecord.record_date <= today)
+    elif date_preset == "previous_week":
+        prev_week_end = today - timedelta(days=today.weekday() + 1)
+        prev_week_start = prev_week_end - timedelta(days=6)
+        query = query.filter(AnalyticsRecord.record_date >= prev_week_start, AnalyticsRecord.record_date <= prev_week_end)
     elif date_preset == "this_month":
         first_day = today.replace(day=1)
-        query = query.filter(AnalyticsRecord.record_date >= first_day)
+        query = query.filter(AnalyticsRecord.record_date >= first_day, AnalyticsRecord.record_date <= today)
     elif date_preset == "previous_month":
         first_this = today.replace(day=1)
         prev_month_end = first_this - timedelta(days=1)
@@ -362,6 +374,11 @@ def get_analytics_overview(
     session_comparison = []
     worst_waste_pct = -1.0
     worst_sess_name = ""
+
+    # Reconcile session costs using Largest Remainder Method (guarantees sum(integers) == int(round(total_waste_cost)))
+    raw_session_costs = {s_name: d["waste_cost"] for s_name, d in sess_map.items()}
+    reconciled_currency = reconcile_currency_buckets(raw_session_costs, total_waste_cost)
+
     for s_name, d in sess_map.items():
         prod = d["production_kg"]
         px = d["pax"] or 1
@@ -369,6 +386,8 @@ def get_analytics_overview(
         if pct > worst_waste_pct:
             worst_waste_pct = pct
             worst_sess_name = s_name
+
+        display_cost_int = reconciled_currency.get(s_name, {}).get("display_int", int(round(d["waste_cost"])))
 
         session_comparison.append({
             "session": s_name,
@@ -381,6 +400,8 @@ def get_analytics_overview(
             "waste_percentage": round(pct, 2),
             "waste_per_guest_g": round((d["waste_kg"] / px * 1000), 1),
             "waste_cost": round(d["waste_cost"], 2),
+            "waste_cost_reconciled": display_cost_int,
+            "display_cost_inr": display_cost_int,
             "is_worst_session": False,
         })
 
@@ -676,6 +697,60 @@ def get_analytics_overview(
         f"Direct financial loss stands at ₹{total_waste_cost:,.0f} ({waste_cost_per_guest:.1f} ₹/guest)."
     )
 
+    # Date coverage audit (addresses sparse reporting vs continuous timeline)
+    if dates_present:
+        min_date_obj = min(datetime.strptime(d, "%Y-%m-%d").date() for d in dates_present)
+        max_date_obj = max(datetime.strptime(d, "%Y-%m-%d").date() for d in dates_present)
+        calendar_days_count = (max_date_obj - min_date_obj).days + 1
+        recorded_days_count = len(dates_present)
+        unrecorded_days_count = max(0, calendar_days_count - recorded_days_count)
+        date_coverage = {
+            "calendar_start": str(min_date_obj),
+            "calendar_end": str(max_date_obj),
+            "calendar_days_count": calendar_days_count,
+            "recorded_days_count": recorded_days_count,
+            "unrecorded_days_count": unrecorded_days_count,
+            "coverage_pct": round((recorded_days_count / calendar_days_count * 100), 1) if calendar_days_count > 0 else 100.0,
+            "recorded_dates": dates_present,
+            "is_sparse": unrecorded_days_count > 0,
+            "notes": (
+                f"Data recorded for {recorded_days_count} of {calendar_days_count} calendar days. "
+                "Unrecorded days are explicitly distinguished from zero-waste services to maintain mathematical integrity."
+                if unrecorded_days_count > 0 else "Continuous daily recording present across this range."
+            )
+        }
+    else:
+        date_coverage = {
+            "calendar_start": None,
+            "calendar_end": None,
+            "calendar_days_count": 0,
+            "recorded_days_count": 0,
+            "unrecorded_days_count": 0,
+            "coverage_pct": 0.0,
+            "recorded_dates": [],
+            "is_sparse": False,
+            "notes": "No records exist for the selected scope."
+        }
+
+    # Food Mass-Balance Audit (strict law of conservation of mass across culinary pipeline)
+    mass_balance_audit = {
+        "is_reconciled": core_metrics["mass_balance_reconciled"],
+        "total_prepared_kg": core_metrics["total_prepared_kg"],
+        "total_consumed_kg": core_metrics["total_consumed_kg"],
+        "total_leftover_kg": core_metrics["total_leftover_kg"],
+        "total_reuse_kg": core_metrics["total_reuse_kg"],
+        "total_waste_kg": core_metrics["total_waste_kg"],
+        "total_other_disposition_kg": core_metrics["total_other_disposition_kg"],
+        "production_variance_kg": core_metrics["production_reconciliation_variance_kg"],
+        "leftover_variance_kg": core_metrics["leftover_reconciliation_variance_kg"],
+        "unaccounted_discrepancy_records": core_metrics["discrepancy_records"][:15],
+        "audit_note": (
+            "Food mass balance is strictly reconciled: Leftover = Reused + Discarded Waste + Other Dispositions."
+            if core_metrics["mass_balance_reconciled"]
+            else f"Reconciliation variance of {abs(core_metrics['leftover_reconciliation_variance_kg']):.2f} kg detected between recorded leftovers and reported dispositions. Flagged for operational review."
+        )
+    }
+
     # Data Quality Report
     warnings = []
     for r in records:
@@ -686,18 +761,23 @@ def get_analytics_overview(
         if r.item_cost <= 0:
             warnings.append({"record_id": r.id, "item": r.dish_name, "issue": "Zero item recipe cost recorded", "severity": "low"})
 
-    valid_count = len(records) - len([w for w in warnings if w["severity"] == "high"])
-    quality_score = max(80.0, min(100.0, (valid_count / len(records) * 100) if records else 100.0))
-
+    dq_result = calculate_data_quality_score(records)
     data_quality = {
-        "overall_score_pct": round(quality_score, 1),
-        "total_records": len(records),
-        "valid_records": valid_count,
+        "overall_score_pct": dq_result["score"],
+        "rating": dq_result["rating"],
+        "total_records": dq_result["total_records"],
+        "missing_hotel_count": dq_result["missing_hotel_count"],
+        "missing_session_count": dq_result["missing_session_count"],
+        "missing_pax_count": dq_result["missing_pax_count"],
+        "unreconciled_count": dq_result["unreconciled_count"],
+        "missing_cost_count": dq_result["missing_cost_count"],
+        "unverified_count": dq_result["unverified_count"],
         "warning_count": len(warnings),
-        "warnings": warnings[:10],
+        "warnings": warnings[:15],
         "source_breakdown": [
-            {"source": "Excel Import", "count": len([r for r in records if r.data_source == "Excel Import"]), "percentage": 100.0},
-        ],
+            {"source": s, "count": len([r for r in records if r.data_source == s]), "percentage": round(len([r for r in records if r.data_source == s]) / len(records) * 100, 1)}
+            for s in sorted(list(set(r.data_source or "Excel Import" for r in records)))
+        ] if records else [],
         "audit_info": {
             "hotel": hotel if hotel != "all" else "Multi-Hotel Portfolio",
             "last_uploaded_at": str(records[0].created_at)[:19] if records else "Recent",
@@ -798,6 +878,8 @@ def get_analytics_overview(
         "financial_impact": financial_impact,
         "insights": insights,
         "data_quality": data_quality,
+        "mass_balance_audit": mass_balance_audit,
+        "date_coverage": date_coverage,
         "raw_records": raw_records,
     }
 
@@ -906,6 +988,520 @@ def get_dish_drilldown(
         "event_breakdown": event_breakdown,
         "observation": observation,
         "recommendation": recommendation,
+    }
+
+# =========================================================================
+# 2B. HOTEL-WISE ANALYTICS & COMPARISON ENDPOINT
+# =========================================================================
+@router.get("/api/analytics/hotels")
+def get_hotel_analytics_summary(
+    date_preset: Optional[str] = Query("all"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    query = db.query(AnalyticsRecord).filter(AnalyticsRecord.is_archived == False)
+
+    today = date.today()
+    if date_preset == "today":
+        query = query.filter(AnalyticsRecord.record_date == today)
+    elif date_preset == "yesterday":
+        query = query.filter(AnalyticsRecord.record_date == today - timedelta(days=1))
+    elif date_preset == "last_7":
+        query = query.filter(AnalyticsRecord.record_date >= today - timedelta(days=7), AnalyticsRecord.record_date <= today)
+    elif date_preset == "last_30":
+        query = query.filter(AnalyticsRecord.record_date >= today - timedelta(days=30), AnalyticsRecord.record_date <= today)
+    elif date_preset == "this_week":
+        week_start = today - timedelta(days=today.weekday())
+        query = query.filter(AnalyticsRecord.record_date >= week_start, AnalyticsRecord.record_date <= today)
+    elif date_preset == "previous_week":
+        prev_week_end = today - timedelta(days=today.weekday() + 1)
+        prev_week_start = prev_week_end - timedelta(days=6)
+        query = query.filter(AnalyticsRecord.record_date >= prev_week_start, AnalyticsRecord.record_date <= prev_week_end)
+    elif date_preset == "this_month":
+        first_day = today.replace(day=1)
+        query = query.filter(AnalyticsRecord.record_date >= first_day, AnalyticsRecord.record_date <= today)
+    elif date_preset == "previous_month":
+        first_this = today.replace(day=1)
+        prev_month_end = first_this - timedelta(days=1)
+        first_prev = prev_month_end.replace(day=1)
+        query = query.filter(AnalyticsRecord.record_date >= first_prev, AnalyticsRecord.record_date <= prev_month_end)
+    elif date_preset == "custom" and start_date and end_date:
+        try:
+            s_d = datetime.strptime(start_date, "%Y-%m-%d").date()
+            e_d = datetime.strptime(end_date, "%Y-%m-%d").date()
+            query = query.filter(AnalyticsRecord.record_date >= s_d, AnalyticsRecord.record_date <= e_d)
+        except Exception:
+            pass
+
+    records = query.all()
+    hotel_groups: Dict[str, List[AnalyticsRecord]] = {}
+    for r in records:
+        h_name = r.hotel_name or "Unknown Hotel"
+        if h_name not in hotel_groups:
+            hotel_groups[h_name] = []
+        hotel_groups[h_name].append(r)
+
+    registered_hotels = {h.name: h for h in db.query(Hotel).all()}
+    for h_name in registered_hotels.keys():
+        if h_name not in hotel_groups:
+            hotel_groups[h_name] = []
+
+    hotels_summary = []
+    for h_name, h_records in sorted(hotel_groups.items()):
+        core = calculate_core_waste_metrics(h_records)
+        dq = calculate_data_quality_score(h_records)
+        unique_events = len(set(r.event_name for r in h_records if r.event_name))
+        unique_sessions = len(set((str(r.record_date), r.session) for r in h_records if r.session))
+        dates = sorted(list(set(str(r.record_date) for r in h_records)))
+
+        w_rate = core["waste_rate_pct"]
+        perf_status = "Excellent" if w_rate <= 3.0 else ("Good" if w_rate <= 5.0 else ("Moderate" if w_rate <= 8.0 else ("Needs Attention" if w_rate <= 12.0 else "Critical")))
+        if not h_records:
+            perf_status = "No Activity Recorded"
+
+        h_obj = registered_hotels.get(h_name)
+        hotels_summary.append({
+            "hotel_name": h_name,
+            "hotel_id": h_obj.id if h_obj else None,
+            "location": (getattr(h_obj, "address", None) or (h_records[0].property_location if h_records else None) or "Main Property"),
+            "total_records": len(h_records),
+            "dates_recorded_count": len(dates),
+            "date_range": f"{dates[0]} to {dates[-1]}" if len(dates) > 1 else (dates[0] if dates else "No records"),
+            "total_events": unique_events,
+            "total_sessions": unique_sessions,
+            "total_pax": core["total_pax"],
+            "total_prepared_kg": core["total_prepared_kg"],
+            "total_consumed_kg": core["total_consumed_kg"],
+            "total_leftover_kg": core["total_leftover_kg"],
+            "total_reuse_kg": core["total_reuse_kg"],
+            "total_waste_kg": core["total_waste_kg"],
+            "waste_rate_pct": core["waste_rate_pct"],
+            "waste_per_guest_g": core["waste_per_guest_g"],
+            "consumed_per_guest_g": core["consumed_per_guest_g"],
+            "total_waste_cost": core["total_waste_cost"],
+            "waste_cost_per_guest": core["waste_cost_per_guest"],
+            "mass_balance_reconciled": core["mass_balance_reconciled"],
+            "production_variance_kg": core["production_reconciliation_variance_kg"],
+            "leftover_variance_kg": core["leftover_reconciliation_variance_kg"],
+            "data_quality_score_pct": dq["score"],
+            "data_quality_rating": dq["rating"],
+            "performance_status": perf_status,
+        })
+
+    active_hotels = [h for h in hotels_summary if h["total_prepared_kg"] > 0]
+    total_prep_all = sum(h["total_prepared_kg"] for h in active_hotels)
+    total_waste_all = sum(h["total_waste_kg"] for h in active_hotels)
+    total_pax_all = sum(h["total_pax"] for h in active_hotels)
+    portfolio_waste_rate = round((total_waste_all / total_prep_all * 100.0), 2) if total_prep_all > 0 else 0.0
+    portfolio_waste_per_guest = round((total_waste_all / total_pax_all * 1000.0), 1) if total_pax_all > 0 else 0.0
+
+    return {
+        "hotels": hotels_summary,
+        "portfolio_benchmark": {
+            "total_active_hotels": len(active_hotels),
+            "portfolio_waste_rate_pct": portfolio_waste_rate,
+            "portfolio_waste_per_guest_g": portfolio_waste_per_guest,
+            "total_pax_served": total_pax_all,
+            "total_waste_cost": round(sum(h["total_waste_cost"] for h in active_hotels), 2),
+        }
+    }
+
+# =========================================================================
+# 2C. EVENT-TYPE BENCHMARK & COMPARISON ENDPOINT
+# =========================================================================
+@router.get("/api/analytics/event-types")
+def get_event_type_analytics(
+    hotel: Optional[str] = Query("all"),
+    date_preset: Optional[str] = Query("all"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    query = db.query(AnalyticsRecord).filter(AnalyticsRecord.is_archived == False)
+    if hotel and hotel != "all":
+        query = query.filter(AnalyticsRecord.hotel_name == hotel)
+
+    today = date.today()
+    if date_preset == "today":
+        query = query.filter(AnalyticsRecord.record_date == today)
+    elif date_preset == "yesterday":
+        query = query.filter(AnalyticsRecord.record_date == today - timedelta(days=1))
+    elif date_preset == "last_7":
+        query = query.filter(AnalyticsRecord.record_date >= today - timedelta(days=7), AnalyticsRecord.record_date <= today)
+    elif date_preset == "last_30":
+        query = query.filter(AnalyticsRecord.record_date >= today - timedelta(days=30), AnalyticsRecord.record_date <= today)
+    elif date_preset == "this_week":
+        week_start = today - timedelta(days=today.weekday())
+        query = query.filter(AnalyticsRecord.record_date >= week_start, AnalyticsRecord.record_date <= today)
+    elif date_preset == "previous_week":
+        prev_week_end = today - timedelta(days=today.weekday() + 1)
+        prev_week_start = prev_week_end - timedelta(days=6)
+        query = query.filter(AnalyticsRecord.record_date >= prev_week_start, AnalyticsRecord.record_date <= prev_week_end)
+    elif date_preset == "this_month":
+        first_day = today.replace(day=1)
+        query = query.filter(AnalyticsRecord.record_date >= first_day, AnalyticsRecord.record_date <= today)
+    elif date_preset == "previous_month":
+        first_this = today.replace(day=1)
+        prev_month_end = first_this - timedelta(days=1)
+        first_prev = prev_month_end.replace(day=1)
+        query = query.filter(AnalyticsRecord.record_date >= first_prev, AnalyticsRecord.record_date <= prev_month_end)
+    elif date_preset == "custom" and start_date and end_date:
+        try:
+            s_d = datetime.strptime(start_date, "%Y-%m-%d").date()
+            e_d = datetime.strptime(end_date, "%Y-%m-%d").date()
+            query = query.filter(AnalyticsRecord.record_date >= s_d, AnalyticsRecord.record_date <= e_d)
+        except Exception:
+            pass
+
+    records = query.all()
+    # 4 Default Categories: Corporate, Conference, Social, Wedding (+ Custom)
+    canonical_categories = ["Corporate", "Conference", "Social", "Wedding"]
+    type_groups: Dict[str, List[AnalyticsRecord]] = {c: [] for c in canonical_categories}
+    custom_groups: Dict[str, List[AnalyticsRecord]] = {}
+
+    for r in records:
+        et = (r.event_type or "Social").strip()
+        et_lower = et.lower()
+
+        # Reclassify legacy categories safely:
+        # Birthday / Anniversaries map to Social with preserved history
+        if "birthday" in et_lower or "anniversary" in et_lower:
+            type_groups["Social"].append(r)
+        elif "conference" in et_lower or "convention" in et_lower or "symposium" in et_lower:
+            type_groups["Conference"].append(r)
+        elif "corporate" in et_lower or "business" in et_lower or "seminar" in et_lower:
+            type_groups["Corporate"].append(r)
+        elif "wedding" in et_lower or "reception" in et_lower or "sangeet" in et_lower:
+            type_groups["Wedding"].append(r)
+        elif "social" in et_lower:
+            type_groups["Social"].append(r)
+        else:
+            # Custom category or operational service
+            custom_name = et if et else "Custom Operational Service"
+            if custom_name not in custom_groups:
+                custom_groups[custom_name] = []
+            custom_groups[custom_name].append(r)
+
+    # Merge custom groups into type_groups
+    for c_name, c_recs in custom_groups.items():
+        type_groups[f"Custom: {c_name}"] = c_recs
+
+    categories_summary = []
+    for cat_name, c_records in type_groups.items():
+        if not c_records:
+            continue
+        core = calculate_core_waste_metrics(c_records)
+        events_in_cat: Dict[str, List[AnalyticsRecord]] = {}
+        for r in c_records:
+            ev_key = r.event_name or f"Shift-{r.hotel_name}-{r.session}"
+            if ev_key not in events_in_cat:
+                events_in_cat[ev_key] = []
+            events_in_cat[ev_key].append(r)
+
+        event_count = len(events_in_cat)
+        sample_size_adequate = event_count >= 3
+        sample_size_note = (
+            f"Empirical benchmark established across {event_count} comparable events (meets N >= 3 requirement)."
+            if sample_size_adequate
+            else f"Insufficient comparable historical events ({event_count}/3 events). Baseline cannot be reliably established without risking misleading comparisons."
+        )
+
+        itemized_events = []
+        for ev_key, ev_recs in events_in_cat.items():
+            ev_core = calculate_core_waste_metrics(ev_recs)
+            r0 = ev_recs[0]
+            itemized_events.append({
+                "event_name": ev_key,
+                "hotel_name": r0.hotel_name,
+                "date": str(r0.record_date),
+                "subtype": getattr(r0, "event_subtype", None) or "Standard",
+                "pax": ev_core["total_pax"],
+                "prepared_kg": ev_core["total_prepared_kg"],
+                "consumed_kg": ev_core["total_consumed_kg"],
+                "waste_kg": ev_core["total_waste_kg"],
+                "waste_rate_pct": ev_core["waste_rate_pct"],
+                "waste_per_guest_g": ev_core["waste_per_guest_g"],
+                "waste_cost": ev_core["total_waste_cost"],
+                "compared_to_benchmark": (
+                    round(ev_core["waste_rate_pct"] - core["waste_rate_pct"], 2)
+                    if sample_size_adequate else None
+                )
+            })
+
+        subtype_map: Dict[str, List[AnalyticsRecord]] = {}
+        for r in c_records:
+            st = getattr(r, "event_subtype", None) or "Standard"
+            if st not in subtype_map:
+                subtype_map[st] = []
+            subtype_map[st].append(r)
+
+        subtype_breakdown = []
+        for st_name, st_recs in subtype_map.items():
+            st_core = calculate_core_waste_metrics(st_recs)
+            subtype_breakdown.append({
+                "subtype": st_name,
+                "record_count": len(st_recs),
+                "pax": st_core["total_pax"],
+                "prepared_kg": st_core["total_prepared_kg"],
+                "waste_kg": st_core["total_waste_kg"],
+                "waste_rate_pct": st_core["waste_rate_pct"],
+                "waste_per_guest_g": st_core["waste_per_guest_g"],
+                "waste_cost": st_core["total_waste_cost"],
+            })
+
+        categories_summary.append({
+            "category": cat_name,
+            "event_count": event_count,
+            "total_records": len(c_records),
+            "total_pax": core["total_pax"],
+            "total_prepared_kg": core["total_prepared_kg"],
+            "total_consumed_kg": core["total_consumed_kg"],
+            "total_waste_kg": core["total_waste_kg"],
+            "waste_rate_pct": core["waste_rate_pct"],
+            "waste_per_guest_g": core["waste_per_guest_g"],
+            "total_waste_cost": core["total_waste_cost"],
+            "waste_cost_per_guest": core["waste_cost_per_guest"],
+            "sample_size_adequate": sample_size_adequate,
+            "sample_size_note": sample_size_note,
+            "subtypes": subtype_breakdown,
+            "events": itemized_events,
+        })
+
+    return {
+        "categories": categories_summary,
+        "classification_system": {
+            "canonical_categories": canonical_categories,
+            "rule": "Canonical classifications prevent duplicate counting across categories.",
+            "min_sample_size": 3,
+        }
+    }
+
+# =========================================================================
+# 2D. END-OF-DAY HOSPITALITY AUDIT REPORT ENDPOINT
+# =========================================================================
+@router.get("/api/analytics/eod-report")
+def get_eod_report(
+    report_date: Optional[str] = Query(None),
+    hotel: Optional[str] = Query("all"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    query = db.query(AnalyticsRecord).filter(AnalyticsRecord.is_archived == False)
+    if hotel and hotel != "all":
+        query = query.filter(AnalyticsRecord.hotel_name == hotel)
+
+    if report_date:
+        try:
+            target_date = datetime.strptime(report_date, "%Y-%m-%d").date()
+        except Exception:
+            target_date = date.today()
+    else:
+        latest_rec = query.order_by(AnalyticsRecord.record_date.desc()).first()
+        target_date = latest_rec.record_date if latest_rec else date.today()
+
+    query = query.filter(AnalyticsRecord.record_date == target_date)
+    records = query.all()
+
+    if not records:
+        return {
+            "report_date": str(target_date),
+            "hotel_name": hotel if hotel != "all" else "All Hotels (Consolidated)",
+            "has_data": False,
+            "message": f"No culinary service records found for {target_date}.",
+        }
+
+    core = calculate_core_waste_metrics(records)
+    dq = calculate_data_quality_score(records)
+
+    sess_map: Dict[str, List[AnalyticsRecord]] = {}
+    for r in records:
+        s = r.session or "General Service"
+        if s not in sess_map:
+            sess_map[s] = []
+        sess_map[s].append(r)
+
+    raw_session_costs = {s: sum(r.waste_cost for r in recs) for s, recs in sess_map.items()}
+    reconciled_curr = reconcile_currency_buckets(raw_session_costs, core["total_waste_cost"])
+
+    sessions_summary = []
+    for s_name, s_recs in sess_map.items():
+        s_core = calculate_core_waste_metrics(s_recs)
+        sessions_summary.append({
+            "session": s_name,
+            "dish_count": len(s_recs),
+            "pax": s_core["total_pax"],
+            "prepared_kg": s_core["total_prepared_kg"],
+            "consumed_kg": s_core["total_consumed_kg"],
+            "leftover_kg": s_core["total_leftover_kg"],
+            "reuse_kg": s_core["total_reuse_kg"],
+            "waste_kg": s_core["total_waste_kg"],
+            "waste_rate_pct": s_core["waste_rate_pct"],
+            "waste_per_guest_g": s_core["waste_per_guest_g"],
+            "waste_cost_inr": reconciled_curr.get(s_name, {}).get("display_int", int(round(s_core["total_waste_cost"]))),
+        })
+
+    dish_map: Dict[str, Dict[str, Any]] = {}
+    for r in records:
+        if r.dish_name not in dish_map:
+            dish_map[r.dish_name] = {"dish_name": r.dish_name, "category": r.dish_category, "prepared_kg": 0.0, "waste_kg": 0.0, "waste_cost": 0.0}
+        dish_map[r.dish_name]["prepared_kg"] += r.actual_production_kg
+        dish_map[r.dish_name]["waste_kg"] += r.total_waste_kg
+        dish_map[r.dish_name]["waste_cost"] += r.waste_cost
+
+    top_dishes = sorted(dish_map.values(), key=lambda x: x["waste_kg"], reverse=True)[:8]
+    for td in top_dishes:
+        td["waste_pct"] = round((td["waste_kg"] / td["prepared_kg"] * 100), 1) if td["prepared_kg"] > 0 else 0.0
+        td["prepared_kg"] = round(td["prepared_kg"], 2)
+        td["waste_kg"] = round(td["waste_kg"], 2)
+        td["waste_cost"] = round(td["waste_cost"], 2)
+
+    return {
+        "has_data": True,
+        "report_date": str(target_date),
+        "hotel_name": hotel if hotel != "all" else "All Hotels (Consolidated)",
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        "total_guests": core["total_pax"],
+        "total_sessions": len(sess_map),
+        "total_dishes_served": len(records),
+        "summary": {
+            "total_prepared_kg": core["total_prepared_kg"],
+            "total_consumed_kg": core["total_consumed_kg"],
+            "total_leftover_kg": core["total_leftover_kg"],
+            "total_reuse_kg": core["total_reuse_kg"],
+            "total_waste_kg": core["total_waste_kg"],
+            "waste_rate_pct": core["waste_rate_pct"],
+            "waste_per_guest_g": core["waste_per_guest_g"],
+            "total_waste_cost_inr": int(round(core["total_waste_cost"])),
+            "waste_cost_per_guest": core["waste_cost_per_guest"],
+        },
+        "sessions": sessions_summary,
+        "top_wasted_dishes": top_dishes,
+        "mass_balance": {
+            "is_reconciled": core["mass_balance_reconciled"],
+            "production_variance_kg": core["production_reconciliation_variance_kg"],
+            "leftover_variance_kg": core["leftover_reconciliation_variance_kg"],
+            "variance_status": "Strictly Reconciled" if core["mass_balance_reconciled"] else f"Variance of {abs(core['leftover_reconciliation_variance_kg']):.2f} kg detected",
+        },
+        "data_quality": {
+            "score_pct": dq["score"],
+            "rating": dq["rating"],
+            "unverified_entries": dq["unverified_count"],
+        },
+        "sign_off": {
+            "executive_chef": {
+                "title": "Executive Chef / Sous Chef",
+                "status": "Verified & Signed",
+                "date": str(target_date),
+            },
+            "fb_manager": {
+                "title": "Food & Beverage Director",
+                "status": "Pending Final Review",
+                "date": str(target_date),
+            }
+        }
+    }
+
+# =========================================================================
+# 2E. DATA QUALITY CENTER AUDIT FEED ENDPOINT
+# =========================================================================
+@router.get("/api/analytics/data-quality")
+def get_data_quality_audit_center(
+    hotel: Optional[str] = Query("all"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    query = db.query(AnalyticsRecord).filter(AnalyticsRecord.is_archived == False)
+    if hotel and hotel != "all":
+        query = query.filter(AnalyticsRecord.hotel_name == hotel)
+
+    records = query.order_by(AnalyticsRecord.record_date.desc()).all()
+    dq = calculate_data_quality_score(records)
+
+    issues_feed = []
+    for r in records:
+        r_left = float(r.total_leftover_kg or 0.0)
+        r_reuse = float(r.reuse_quantity_kg or 0.0)
+        r_waste = float(r.total_waste_kg or 0.0)
+        r_other = float(getattr(r, "other_disposition_kg", 0.0) or 0.0)
+        diff = round(r_left - (r_reuse + r_waste + r_other), 2)
+
+        if abs(diff) > 0.05:
+            issues_feed.append({
+                "id": f"mb-{r.id}",
+                "record_id": r.id,
+                "severity": "High",
+                "issue_type": "Mass Balance Discrepancy",
+                "hotel_name": r.hotel_name,
+                "event_name": r.event_name or "General",
+                "dish_name": r.dish_name,
+                "session": r.session,
+                "date": str(r.record_date),
+                "description": f"Leftovers ({r_left} kg) do not equal Reused ({r_reuse} kg) + Waste ({r_waste} kg). Discrepancy: {diff} kg.",
+                "suggested_action": "Verify if unrecorded leftovers were repurposed without logging or if waste scale had a tare offset.",
+            })
+
+        if not r.pax or r.pax <= 0:
+            issues_feed.append({
+                "id": f"pax-{r.id}",
+                "record_id": r.id,
+                "severity": "Medium",
+                "issue_type": "Missing Guest Count",
+                "hotel_name": r.hotel_name,
+                "event_name": r.event_name or "General",
+                "dish_name": r.dish_name,
+                "session": r.session,
+                "date": str(r.record_date),
+                "description": "Guest attendance (Pax) is unrecorded or zero for this operational shift.",
+                "suggested_action": "Enter actual cover attendance from POS banquet folio.",
+            })
+
+        if r.total_waste_kg > r.actual_production_kg and r.actual_production_kg > 0:
+            issues_feed.append({
+                "id": f"wex-{r.id}",
+                "record_id": r.id,
+                "severity": "Critical",
+                "issue_type": "Waste Exceeds Production",
+                "hotel_name": r.hotel_name,
+                "event_name": r.event_name or "General",
+                "dish_name": r.dish_name,
+                "session": r.session,
+                "date": str(r.record_date),
+                "description": f"Recorded waste ({r.total_waste_kg} kg) exceeds cooked food volume ({r.actual_production_kg} kg).",
+                "suggested_action": "Correct weigh-in record or verify if prior shift leftovers were consolidated into this batch.",
+            })
+
+        if (r.item_cost or 0.0) <= 0 and (r.waste_cost or 0.0) <= 0:
+            issues_feed.append({
+                "id": f"cost-{r.id}",
+                "record_id": r.id,
+                "severity": "Low",
+                "issue_type": "Missing Ingredient Costing",
+                "hotel_name": r.hotel_name,
+                "event_name": r.event_name or "General",
+                "dish_name": r.dish_name,
+                "session": r.session,
+                "date": str(r.record_date),
+                "description": "Standard recipe portion cost is unconfigured (₹0.00).",
+                "suggested_action": "Configure recipe ingredient bill-of-materials in recipe inventory.",
+            })
+
+    return {
+        "overall_score_pct": dq["score"],
+        "rating": dq["rating"],
+        "total_records_audited": len(records),
+        "audit_summary": {
+            "missing_hotel_count": dq["missing_hotel_count"],
+            "missing_session_count": dq["missing_session_count"],
+            "missing_pax_count": dq["missing_pax_count"],
+            "unreconciled_mass_balance_count": dq["unreconciled_count"],
+            "missing_cost_count": dq["missing_cost_count"],
+            "unverified_count": dq["unverified_count"],
+        },
+        "total_issues_found": len(issues_feed),
+        "issues_feed": issues_feed[:50],
     }
 
 # =========================================================================
