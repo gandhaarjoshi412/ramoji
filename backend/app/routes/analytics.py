@@ -144,7 +144,7 @@ def get_analytics_overview(
         prev_month_end = first_this - timedelta(days=1)
         first_prev = prev_month_end.replace(day=1)
         query = query.filter(AnalyticsRecord.record_date >= first_prev, AnalyticsRecord.record_date <= prev_month_end)
-    elif date_preset == "custom" and start_date and end_date:
+    elif (date_preset == "custom" or (start_date and end_date)) and start_date and end_date:
         try:
             s_d = datetime.strptime(start_date, "%Y-%m-%d").date()
             e_d = datetime.strptime(end_date, "%Y-%m-%d").date()

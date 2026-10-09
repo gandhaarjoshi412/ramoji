@@ -158,3 +158,61 @@ def test_api_upload_preview_and_confirm(auth_headers):
     rb_res = client.delete(f"/api/analytics/imports/{import_id}", headers=auth_headers)
     assert rb_res.status_code == 200
     assert rb_res.json()["deleted_records"] == 42
+
+
+def test_sahara_monthly_workbook_exact_accuracy():
+    sahara_path = "excel/Aug - 26 Sahara Daily wise Production, Pickup  Wastage report.xlsx"
+    if not os.path.exists(sahara_path):
+        pytest.skip("Sahara monthly report not present in excel/ directory")
+
+    with open(sahara_path, "rb") as f:
+        content = f.read()
+
+    fname = os.path.basename(sahara_path)
+    records, warnings = parse_and_normalize_report(content, fname)
+
+    # 1. Verify summary sheet exclusion (Sheet1 omitted, exactly 24 sheets * 29 dishes = 696 dish records)
+    assert len(records) == 696
+    assert all(r["source_sheet"] != "Sheet1" for r in records)
+
+    # 2. Verify all 24 dates preserved without date collapsing
+    dates = sorted(list(set(str(r["record_date"]) for r in records)))
+    assert len(dates) == 24
+    assert dates[0] == "2026-08-01"
+    assert dates[-1] == "2026-08-24"
+
+    # 3. Ground truth check for Aug 01: exactly 3,647.80 kg prepared, 175.39 kg waste
+    aug1_recs = [r for r in records if str(r["record_date"]) == "2026-08-01"]
+    assert len(aug1_recs) == 29
+    aug1_prod = round(sum(r["actual_production_kg"] for r in aug1_recs), 2)
+    aug1_waste = round(sum(r["total_waste_kg"] for r in aug1_recs), 2)
+    assert aug1_prod == 3647.80
+    assert aug1_waste == 175.39
+
+    # 4. Hotel mapping
+    assert all(r["hotel_name"] == "Hotel Sahara" for r in records)
+
+
+def test_banquet_cooked_food_report_cutoff():
+    banquet_path = "excel/Cocktail Non Veg buffet Dinner Cooked Food consumption details on 07.10.2026.xlsx"
+    if not os.path.exists(banquet_path):
+        pytest.skip("Banquet report not present in excel/ directory")
+
+    with open(banquet_path, "rb") as f:
+        content = f.read()
+
+    fname = os.path.basename(banquet_path)
+    records, warnings = parse_and_normalize_report(content, fname)
+
+    # Exactly 34 dish items before COOKED FOOD REPORT summary block
+    assert len(records) == 34
+    assert all(r["hotel_name"] == "Hotel Sitara" for r in records)
+    assert str(records[0]["record_date"]) == "2026-10-07"
+
+    total_prod = round(sum(r["actual_production_kg"] for r in records), 2)
+    total_waste = round(sum(r["total_waste_kg"] for r in records), 2)
+
+    # Exactly matches the summary table in rows 53-61
+    assert total_prod == 268.60
+    assert total_waste == 20.05
+

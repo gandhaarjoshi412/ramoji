@@ -78,4 +78,6 @@ scratch/
 *.bak
 .wrangler/
 *.tsbuildinfo
+.agents/
+
 

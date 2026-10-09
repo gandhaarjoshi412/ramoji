@@ -123,9 +123,14 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
       setPreviewData(res);
       if (res.sheets && res.sheets.length > 0) {
         setSelectedSheet("all");
-        // Pre-fill editable overrides from first detected sheet
+        // Pre-fill editable overrides
+        const distinctDates = Array.from(new Set(res.sheets.map((s: any) => s.date).filter(Boolean)));
         setHotelOverride(res.sheets[0].hotel || "");
-        setDateOverride(res.sheets[0].date || "");
+        if (distinctDates.length > 1) {
+          setDateOverride("");
+        } else {
+          setDateOverride(res.sheets[0].date || "");
+        }
         setEventOverride(res.sheets[0].event_name || "");
       }
     } catch (err: any) {
@@ -813,7 +818,15 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => setSelectedSheet("all")}
+                    onClick={() => {
+                      setSelectedSheet("all");
+                      const distinctDates = Array.from(new Set(previewData.sheets.map((s: any) => s.date).filter(Boolean)));
+                      if (distinctDates.length > 1) {
+                        setDateOverride("");
+                      } else if (previewData.sheets[0]?.date) {
+                        setDateOverride(previewData.sheets[0].date);
+                      }
+                    }}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
                       selectedSheet === "all"
                         ? "bg-slate-900 text-white shadow-xs"
@@ -875,12 +888,18 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
                   <label className="text-[10px] text-slate-500 font-bold uppercase block">
                     Service Date
                   </label>
-                  <input
-                    type="date"
-                    value={dateOverride}
-                    onChange={(e) => setDateOverride(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-slate-900 focus:outline-emerald-500 text-xs"
-                  />
+                  {selectedSheet === "all" && Array.from(new Set(previewData?.sheets?.map((s: any) => s.date).filter(Boolean))).length > 1 ? (
+                    <div className="px-2.5 py-1.5 bg-slate-100 border border-slate-200 rounded-lg text-slate-600 font-medium text-xs">
+                      Multi-day ({Array.from(new Set(previewData?.sheets?.map((s: any) => s.date).filter(Boolean))).length} daily sheets)
+                    </div>
+                  ) : (
+                    <input
+                      type="date"
+                      value={dateOverride}
+                      onChange={(e) => setDateOverride(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-slate-900 focus:outline-emerald-500 text-xs"
+                    />
+                  )}
                 </div>
 
                 <div className="space-y-1">
