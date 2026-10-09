@@ -52,7 +52,7 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
   const [hotelOverride, setHotelOverride] = useState("");
   const [dateOverride, setDateOverride] = useState("");
   const [eventOverride, setEventOverride] = useState("");
-  const [duplicateAction, setDuplicateAction] = useState<"import" | "replace" | "skip">("replace");
+  const [duplicateAction, setDuplicateAction] = useState<"import" | "replace" | "skip">("import");
 
   // Post-import confirmation and skipped states
   const [confirmResult, setConfirmResult] = useState<UploadConfirmResponse | null>(null);
@@ -74,7 +74,7 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
     setHotelOverride("");
     setDateOverride("");
     setEventOverride("");
-    setDuplicateAction("replace");
+    setDuplicateAction("import");
     setConfirmResult(null);
     setSkippedNotice(null);
     setCopiedId(false);
@@ -121,6 +121,11 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
       });
 
       setPreviewData(res);
+      if (res.is_potential_duplicate) {
+        setDuplicateAction("replace");
+      } else {
+        setDuplicateAction("import");
+      }
       if (res.sheets && res.sheets.length > 0) {
         setSelectedSheet("all");
         // Pre-fill editable overrides
@@ -806,6 +811,23 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
                     Skip Duplicate
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* Multi-Event / Multi-Session Date Notice (When NOT a duplicate) */}
+            {!previewData.is_potential_duplicate && previewData.existing_events_on_date && previewData.existing_events_on_date.length > 0 && (
+              <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-xl space-y-1 text-xs text-blue-950">
+                <div className="flex items-center gap-1.5 font-bold text-blue-900">
+                  <Layers className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Co-Existing Event Records on this Date</span>
+                </div>
+                <p className="text-[11px] text-blue-800 leading-relaxed">
+                  The database already contains operational records for:{" "}
+                  <strong>
+                    {previewData.existing_events_on_date.map((e: any) => `${e.event_name || 'Event'} (${e.session || 'Session'}) - ${e.record_count} items`).join(", ")}
+                  </strong>
+                  . This report will be appended as an additional event/session without overwriting prior records.
+                </p>
               </div>
             )}
 
