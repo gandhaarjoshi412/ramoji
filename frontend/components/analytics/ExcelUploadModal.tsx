@@ -52,7 +52,7 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
   const [hotelOverride, setHotelOverride] = useState("");
   const [dateOverride, setDateOverride] = useState("");
   const [eventOverride, setEventOverride] = useState("");
-  const [duplicateAction, setDuplicateAction] = useState<"import" | "replace" | "skip">("replace");
+  const [duplicateAction, setDuplicateAction] = useState<"import" | "replace" | "skip">("import");
 
   // Post-import confirmation and skipped states
   const [confirmResult, setConfirmResult] = useState<UploadConfirmResponse | null>(null);
@@ -74,7 +74,7 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
     setHotelOverride("");
     setDateOverride("");
     setEventOverride("");
-    setDuplicateAction("replace");
+    setDuplicateAction("import");
     setConfirmResult(null);
     setSkippedNotice(null);
     setCopiedId(false);
@@ -121,11 +121,21 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
       });
 
       setPreviewData(res);
+      if (res.is_potential_duplicate) {
+        setDuplicateAction("replace");
+      } else {
+        setDuplicateAction("import");
+      }
       if (res.sheets && res.sheets.length > 0) {
         setSelectedSheet("all");
-        // Pre-fill editable overrides: if single sheet, prefill directly; if multiple sheets, let each sheet retain its own event unless explicitly overridden
+        // Pre-fill editable overrides: if multi-day, leave date blank so each sheet preserves its date
+        const distinctDates = Array.from(new Set(res.sheets.map((s: any) => s.date).filter(Boolean)));
         setHotelOverride(res.sheets[0].hotel || "");
-        setDateOverride(res.sheets[0].date || "");
+        if (distinctDates.length > 1) {
+          setDateOverride("");
+        } else {
+          setDateOverride(res.sheets[0].date || "");
+        }
         setEventOverride(res.sheets.length === 1 ? (res.sheets[0].event_name || "") : "");
       }
     } catch (err: any) {
@@ -804,6 +814,23 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
               </div>
             )}
 
+            {/* Multi-Event / Multi-Session Date Notice (When NOT a duplicate) */}
+            {!previewData.is_potential_duplicate && previewData.existing_events_on_date && previewData.existing_events_on_date.length > 0 && (
+              <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-xl space-y-1 text-xs text-blue-950">
+                <div className="flex items-center gap-1.5 font-bold text-blue-900">
+                  <Layers className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Co-Existing Event Records on this Date</span>
+                </div>
+                <p className="text-[11px] text-blue-800 leading-relaxed">
+                  The database already contains operational records for:{" "}
+                  <strong>
+                    {previewData.existing_events_on_date.map((e: any) => `${e.event_name || 'Event'} (${e.session || 'Session'}) - ${e.record_count} items`).join(", ")}
+                  </strong>
+                  . This report will be appended as an additional event/session without overwriting prior records.
+                </p>
+              </div>
+            )}
+
             {/* Sheet Selector (if multiple sheets exist) */}
             {previewData.sheets && previewData.sheets.length > 1 && (
               <div className="space-y-1.5">
@@ -816,6 +843,12 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
                     onClick={() => {
                       setSelectedSheet("all");
                       setEventOverride("");
+                      const distinctDates = Array.from(new Set(previewData.sheets.map((s: any) => s.date).filter(Boolean)));
+                      if (distinctDates.length > 1) {
+                        setDateOverride("");
+                      } else if (previewData.sheets[0]?.date) {
+                        setDateOverride(previewData.sheets[0].date);
+                      }
                     }}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
                       selectedSheet === "all"
@@ -878,12 +911,18 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
                   <label className="text-[10px] text-slate-500 font-bold uppercase block">
                     Service Date
                   </label>
-                  <input
-                    type="date"
-                    value={dateOverride}
-                    onChange={(e) => setDateOverride(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-slate-900 focus:outline-emerald-500 text-xs"
-                  />
+                  {selectedSheet === "all" && Array.from(new Set(previewData?.sheets?.map((s: any) => s.date).filter(Boolean))).length > 1 ? (
+                    <div className="px-2.5 py-1.5 bg-slate-100 border border-slate-200 rounded-lg text-slate-600 font-medium text-xs">
+                      Multi-day ({Array.from(new Set(previewData?.sheets?.map((s: any) => s.date).filter(Boolean))).length} daily sheets)
+                    </div>
+                  ) : (
+                    <input
+                      type="date"
+                      value={dateOverride}
+                      onChange={(e) => setDateOverride(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-slate-900 focus:outline-emerald-500 text-xs"
+                    />
+                  )}
                 </div>
 
                 <div className="space-y-1">

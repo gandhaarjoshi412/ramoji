@@ -161,7 +161,7 @@ def get_analytics_overview(
         prev_month_end = first_this - timedelta(days=1)
         first_prev = prev_month_end.replace(day=1)
         query = query.filter(AnalyticsRecord.record_date >= first_prev, AnalyticsRecord.record_date <= prev_month_end)
-    elif date_preset == "custom" and start_date and end_date:
+    elif (date_preset == "custom" or (start_date and end_date)) and start_date and end_date:
         try:
             s_d = datetime.strptime(start_date, "%Y-%m-%d").date()
             e_d = datetime.strptime(end_date, "%Y-%m-%d").date()
@@ -2267,7 +2267,7 @@ async def preview_upload(
     filename = file.filename or "uploaded_report.xlsx"
     analysis = analyze_report_file(content, filename)
 
-    # Perform database duplicate check
+    # Perform database duplicate check (event & session aware)
     potential_duplicate = False
     dup_reasons = []
     dup_count = 0
@@ -2279,27 +2279,76 @@ async def preview_upload(
         dup_count += file_matches
         dup_reasons.append(f"{file_matches} records from file '{filename}' already exist.")
 
-    # 2. Hotel + Date match from detected sheets
+    # 2. Hotel + Date + Event + Session match from detected sheets
+    existing_events_on_date = []
+    seen_date_events = set()
     for s in analysis.get("sheets", []):
         h_name = s.get("hotel")
         d_val = s.get("date")
+        ev_name = s.get("event_name")
+        sess_name = s.get("session")
         if h_name and d_val:
             try:
                 d_obj = datetime.strptime(d_val, "%Y-%m-%d").date()
-                hotel_date_matches = db.query(AnalyticsRecord).filter(
+
+                # Query all existing records for this hotel and date to detect co-existing events
+                date_recs = db.query(
+                    AnalyticsRecord.event_name,
+                    AnalyticsRecord.session,
+                    func.count(AnalyticsRecord.id)
+                ).filter(
                     AnalyticsRecord.hotel_name == h_name,
                     AnalyticsRecord.record_date == d_obj
-                ).count()
-                if hotel_date_matches > 0 and hotel_date_matches not in [file_matches]:
+                ).group_by(AnalyticsRecord.event_name, AnalyticsRecord.session).all()
+
+                for de_name, de_sess, de_cnt in date_recs:
+                    de_key = (h_name, d_val, de_name, de_sess)
+                    if de_key not in seen_date_events:
+                        seen_date_events.add(de_key)
+                        existing_events_on_date.append({
+                            "hotel": h_name,
+                            "date": d_val,
+                            "event_name": de_name,
+                            "session": de_sess,
+                            "record_count": de_cnt,
+                        })
+
+                # Specific event & session duplicate check:
+                # A true duplicate occurs if records exist with the SAME event and SAME session
+                event_session_q = db.query(AnalyticsRecord).filter(
+                    AnalyticsRecord.hotel_name == h_name,
+                    AnalyticsRecord.record_date == d_obj
+                )
+                if ev_name and sess_name:
+                    event_session_q = event_session_q.filter(
+                        AnalyticsRecord.event_name == ev_name,
+                        AnalyticsRecord.session == sess_name
+                    )
+                elif ev_name:
+                    event_session_q = event_session_q.filter(AnalyticsRecord.event_name == ev_name)
+                elif sess_name:
+                    event_session_q = event_session_q.filter(AnalyticsRecord.session == sess_name)
+
+                matched_count = event_session_q.count()
+                if matched_count > 0 and matched_count != file_matches:
                     potential_duplicate = True
-                    dup_count += hotel_date_matches
-                    dup_reasons.append(f"{hotel_date_matches} existing records for {h_name} on {d_val}.")
+                    dup_count += matched_count
+                    context_parts = []
+                    if ev_name:
+                        context_parts.append(f"Event: '{ev_name}'")
+                    if sess_name:
+                        context_parts.append(f"Session: '{sess_name}'")
+                    context_str = f" ({', '.join(context_parts)})" if context_parts else ""
+                    dup_reasons.append(
+                        f"{matched_count} existing records for {h_name} on {d_val}{context_str}."
+                    )
             except Exception:
                 pass
 
     analysis["is_potential_duplicate"] = potential_duplicate
     analysis["duplicate_count"] = dup_count
     analysis["duplicate_reason"] = "; ".join(dup_reasons) if dup_reasons else None
+    analysis["existing_events_on_date"] = existing_events_on_date
 
     return analysis
 
@@ -2343,33 +2392,79 @@ async def confirm_upload(
                 detail=f"Could not extract valid records from '{filename}'. Please ensure the file is a supported spreadsheet (.xlsx, .xls, .csv) with dish rows and quantity data."
             )
 
-        # Handle duplicate actions
+        # Handle duplicate actions (event & session scoped)
         if duplicate_action == "skip":
             sample_h = records[0].get("hotel_name")
             sample_d = records[0].get("record_date")
-            existing_recs = db.query(AnalyticsRecord).filter(
+            sample_ev = records[0].get("event_name")
+            sample_sess = records[0].get("session")
+            skip_q = db.query(AnalyticsRecord).filter(
                 AnalyticsRecord.hotel_name == sample_h,
                 AnalyticsRecord.record_date == sample_d
-            ).count()
+            )
+            if sample_ev and sample_sess:
+                skip_q = skip_q.filter(
+                    AnalyticsRecord.event_name == sample_ev,
+                    AnalyticsRecord.session == sample_sess
+                )
+            elif sample_ev:
+                skip_q = skip_q.filter(AnalyticsRecord.event_name == sample_ev)
+            elif sample_sess:
+                skip_q = skip_q.filter(AnalyticsRecord.session == sample_sess)
+            existing_recs = skip_q.count()
             if existing_recs > 0:
+                event_str = f" for '{sample_ev}' ({sample_sess})" if sample_ev else ""
                 return {
                     "status": "skipped",
-                    "message": f"Import skipped: {existing_recs} records already exist for {sample_h} on {sample_d}. No records were added or modified.",
+                    "message": f"Import skipped: {existing_recs} records already exist for {sample_h} on {sample_d}{event_str}. No records were added or modified.",
                     "inserted_records": 0,
                     "filename": filename,
                 }
 
         deleted_count = 0
         if duplicate_action == "replace":
-            # Remove existing records matching these hotels and dates
-            unique_targets = {(r.get("hotel_name"), r.get("record_date")) for r in records}
-            for h, d in unique_targets:
+            # Remove existing records matching these specific hotels, dates, events, sessions, or source file
+            unique_targets = {
+                (
+                    r.get("hotel_name"),
+                    r.get("record_date"),
+                    r.get("event_name"),
+                    r.get("session"),
+                    r.get("source_file"),
+                )
+                for r in records
+            }
+            for h, d, ev, sess, sfile in unique_targets:
                 if h and d:
-                    del_q = db.query(AnalyticsRecord).filter(
+                    del_query = db.query(AnalyticsRecord).filter(
                         AnalyticsRecord.hotel_name == h,
                         AnalyticsRecord.record_date == d
-                    ).delete(synchronize_session=False)
-                    deleted_count += del_q
+                    )
+                    # Delete only the specific event/session or source file being replaced
+                    if ev and sess:
+                        del_query = del_query.filter(
+                            or_(
+                                (AnalyticsRecord.event_name == ev) & (AnalyticsRecord.session == sess),
+                                AnalyticsRecord.source_file == sfile
+                            )
+                        )
+                    elif ev:
+                        del_query = del_query.filter(
+                            or_(
+                                AnalyticsRecord.event_name == ev,
+                                AnalyticsRecord.source_file == sfile
+                            )
+                        )
+                    elif sess:
+                        del_query = del_query.filter(
+                            or_(
+                                AnalyticsRecord.session == sess,
+                                AnalyticsRecord.source_file == sfile
+                            )
+                        )
+                    else:
+                        del_query = del_query.filter(AnalyticsRecord.source_file == sfile)
+                    deleted_count += del_query.delete(synchronize_session=False)
             db.flush()
 
         batch_import_id = str(uuid.uuid4())

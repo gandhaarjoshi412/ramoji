@@ -551,7 +551,7 @@ def extract_metadata_from_text(text: str, sheet_name: str = "", filename: str = 
             meta["event_type"] = normalize_event_type(et)
             break
 
-    ev_m = re.search(r'(M/S\.\s*[^F\n\r]+?)(?:\s+(?:NON|VEG|COCKTAIL|BUFFET|DINNER|LUNCH|COOKED|FOR\s+\d+)|$)', text, re.IGNORECASE)
+    ev_m = re.search(r'(M/S\.\s*.+?)(?:\s+(?:NON|VEG|COCKTAIL|BUFFET|DINNER|LUNCH|COOKED|FOR\s+\d+)|$)', text, re.IGNORECASE)
     if ev_m:
         cleaned_ev = ev_m.group(1).strip().title()
         cleaned_ev = re.sub(r'\s+Group.*$', '', cleaned_ev, flags=re.IGNORECASE)
