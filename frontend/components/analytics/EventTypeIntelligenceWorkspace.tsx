@@ -102,6 +102,18 @@ export const EventTypeIntelligenceWorkspace: React.FC<EventTypeIntelligenceWorks
   };
 
   useEffect(() => {
+    if (initialHotel !== undefined) {
+      setSelectedHotel(initialHotel);
+    }
+  }, [initialHotel]);
+
+  useEffect(() => {
+    if (initialDatePreset !== undefined) {
+      setDatePreset(initialDatePreset);
+    }
+  }, [initialDatePreset]);
+
+  useEffect(() => {
     fetchData();
   }, [selectedHotel, datePreset]);
 
@@ -202,6 +214,31 @@ export const EventTypeIntelligenceWorkspace: React.FC<EventTypeIntelligenceWorks
 
     return list;
   }, [data, dishSearchQuery, dishCategoryFilter, dietaryFilter, wasteRateFilter, matrixSortCol, matrixSortAsc, selectedCategory]);
+
+  // Matrix Pagination
+  const [matrixPage, setMatrixPage] = useState<number>(1);
+  const [matrixPerPage, setMatrixPerPage] = useState<number>(10);
+
+  // Cards Pagination
+  const [cardsPage, setCardsPage] = useState<number>(1);
+  const cardsPerPage = 12;
+
+  useEffect(() => {
+    setMatrixPage(1);
+    setCardsPage(1);
+  }, [dishSearchQuery, dishCategoryFilter, dietaryFilter, wasteRateFilter, matrixSortCol, matrixSortAsc, selectedCategory]);
+
+  const totalMatrixPages = Math.max(1, Math.ceil(filteredDishMatrix.length / matrixPerPage));
+  const paginatedDishMatrix = useMemo(() => {
+    const start = (matrixPage - 1) * matrixPerPage;
+    return filteredDishMatrix.slice(start, start + matrixPerPage);
+  }, [filteredDishMatrix, matrixPage, matrixPerPage]);
+
+  const totalCardsPages = Math.max(1, Math.ceil(filteredDishMatrix.length / cardsPerPage));
+  const paginatedCardsMatrix = useMemo(() => {
+    const start = (cardsPage - 1) * cardsPerPage;
+    return filteredDishMatrix.slice(start, start + cardsPerPage);
+  }, [filteredDishMatrix, cardsPage, cardsPerPage]);
 
   const toggleSort = (col: string) => {
     if (matrixSortCol === col) {
@@ -782,7 +819,7 @@ export const EventTypeIntelligenceWorkspace: React.FC<EventTypeIntelligenceWorks
                           </td>
                         </tr>
                       ) : (
-                        filteredDishMatrix.map((dish) => {
+                        paginatedDishMatrix.map((dish) => {
                           const corp = dish.categories["Corporate"];
                           const wed = dish.categories["Wedding"];
                           const soc = dish.categories["Social"];
@@ -913,6 +950,84 @@ export const EventTypeIntelligenceWorkspace: React.FC<EventTypeIntelligenceWorks
                     </tbody>
                   </table>
                 </div>
+
+                {/* Dish Comparison Matrix Pagination Controls */}
+                {filteredDishMatrix.length > 0 && (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-slate-100 bg-slate-50/50 text-xs">
+                    <div className="flex items-center gap-2 text-slate-500">
+                      <span>
+                        Showing <strong>{(matrixPage - 1) * matrixPerPage + 1}</strong> to{" "}
+                        <strong>{Math.min(matrixPage * matrixPerPage, filteredDishMatrix.length)}</strong> of{" "}
+                        <strong>{filteredDishMatrix.length}</strong> dishes
+                      </span>
+                      <span className="text-slate-300">|</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-slate-500">Per page:</span>
+                        <select
+                          value={matrixPerPage}
+                          onChange={(e) => {
+                            setMatrixPerPage(Number(e.target.value));
+                            setMatrixPage(1);
+                          }}
+                          className="px-2 py-0.5 border border-slate-200 rounded-md bg-white text-xs font-semibold text-slate-700 cursor-pointer focus:outline-hidden"
+                        >
+                          <option value={10}>10</option>
+                          <option value={20}>20</option>
+                          <option value={50}>50</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={matrixPage <= 1}
+                        onClick={() => setMatrixPage((prev) => Math.max(1, prev - 1))}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Previous
+                      </button>
+
+                      {Array.from({ length: totalMatrixPages }, (_, i) => i + 1).map((pg) => {
+                        if (
+                          pg === 1 ||
+                          pg === totalMatrixPages ||
+                          (pg >= matrixPage - 1 && pg <= matrixPage + 1)
+                        ) {
+                          return (
+                            <button
+                              key={pg}
+                              type="button"
+                              onClick={() => setMatrixPage(pg)}
+                              className={`min-w-[28px] h-7 px-2 rounded-lg text-xs font-bold transition-colors ${
+                                matrixPage === pg
+                                  ? "bg-emerald-700 text-white shadow-2xs"
+                                  : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                              }`}
+                            >
+                              {pg}
+                            </button>
+                          );
+                        } else if (
+                          (pg === 2 && matrixPage > 3) ||
+                          (pg === totalMatrixPages - 1 && matrixPage < totalMatrixPages - 2)
+                        ) {
+                          return <span key={pg} className="px-1 text-slate-400">...</span>;
+                        }
+                        return null;
+                      })}
+
+                      <button
+                        type="button"
+                        disabled={matrixPage >= totalMatrixPages}
+                        onClick={() => setMatrixPage((prev) => Math.min(totalMatrixPages, prev + 1))}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -927,7 +1042,7 @@ export const EventTypeIntelligenceWorkspace: React.FC<EventTypeIntelligenceWorks
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredDishMatrix.slice(0, 12).map((dish) => {
+                {paginatedCardsMatrix.map((dish) => {
                   const corp = dish.categories["Corporate"];
                   const wed = dish.categories["Wedding"];
                   const soc = dish.categories["Social"];
@@ -1054,6 +1169,54 @@ export const EventTypeIntelligenceWorkspace: React.FC<EventTypeIntelligenceWorks
                   );
                 })}
               </div>
+
+              {/* Cards Pagination Controls */}
+              {filteredDishMatrix.length > 0 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 rounded-xl border border-slate-200/90 bg-white text-xs">
+                  <div className="flex items-center gap-2 text-slate-500">
+                    <span>
+                      Showing <strong>{(cardsPage - 1) * cardsPerPage + 1}</strong> to{" "}
+                      <strong>{Math.min(cardsPage * cardsPerPage, filteredDishMatrix.length)}</strong> of{" "}
+                      <strong>{filteredDishMatrix.length}</strong> dish cards
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={cardsPage <= 1}
+                      onClick={() => setCardsPage((prev) => Math.max(1, prev - 1))}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Previous
+                    </button>
+
+                    {Array.from({ length: totalCardsPages }, (_, i) => i + 1).map((pg) => (
+                      <button
+                        key={pg}
+                        type="button"
+                        onClick={() => setCardsPage(pg)}
+                        className={`min-w-[28px] h-7 px-2 rounded-lg text-xs font-bold transition-colors ${
+                          cardsPage === pg
+                            ? "bg-emerald-700 text-white shadow-2xs"
+                            : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        {pg}
+                      </button>
+                    ))}
+
+                    <button
+                      type="button"
+                      disabled={cardsPage >= totalCardsPages}
+                      onClick={() => setCardsPage((prev) => Math.min(totalCardsPages, prev + 1))}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

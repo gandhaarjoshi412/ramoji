@@ -651,6 +651,20 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
     return completeness < 80 || wastePct > 25;
   }).length;
 
+  // Pagination for Events Table
+  const [eventsPage, setEventsPage] = useState<number>(1);
+  const [eventsPerPage, setEventsPerPage] = useState<number>(8);
+
+  useEffect(() => {
+    setEventsPage(1);
+  }, [searchTerm, filterType, showArchived, applyDateFilter, selectedHotel, datePreset]);
+
+  const totalEventsPages = Math.max(1, Math.ceil(filteredEvents.length / eventsPerPage));
+  const paginatedEvents = useMemo(() => {
+    const start = (eventsPage - 1) * eventsPerPage;
+    return filteredEvents.slice(start, start + eventsPerPage);
+  }, [filteredEvents, eventsPage, eventsPerPage]);
+
   return (
     <div className="space-y-6">
       {/* Header Bar (Part 4.1) */}
@@ -815,7 +829,7 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredEvents.map((ev) => {
+                {paginatedEvents.map((ev) => {
                   const isArchived = ev.is_archived;
                   return (
                     <tr
@@ -924,6 +938,85 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
             </table>
           </div>
         )}
+
+        {/* Events Table Pagination Controls */}
+        {filteredEvents.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-slate-100 bg-slate-50/50 text-xs">
+            <div className="flex items-center gap-2 text-slate-500">
+              <span>
+                Showing <strong>{(eventsPage - 1) * eventsPerPage + 1}</strong> to{" "}
+                <strong>{Math.min(eventsPage * eventsPerPage, filteredEvents.length)}</strong> of{" "}
+                <strong>{filteredEvents.length}</strong> events
+              </span>
+              <span className="text-slate-300">|</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-500">Per page:</span>
+                <select
+                  value={eventsPerPage}
+                  onChange={(e) => {
+                    setEventsPerPage(Number(e.target.value));
+                    setEventsPage(1);
+                  }}
+                  className="px-2 py-0.5 border border-slate-200 rounded-md bg-white text-xs font-semibold text-slate-700 cursor-pointer focus:outline-hidden"
+                >
+                  <option value={8}>8</option>
+                  <option value={15}>15</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                disabled={eventsPage <= 1}
+                onClick={() => setEventsPage((prev) => Math.max(1, prev - 1))}
+                className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Previous
+              </button>
+
+              {Array.from({ length: totalEventsPages }, (_, i) => i + 1).map((pg) => {
+                if (
+                  pg === 1 ||
+                  pg === totalEventsPages ||
+                  (pg >= eventsPage - 1 && pg <= eventsPage + 1)
+                ) {
+                  return (
+                    <button
+                      key={pg}
+                      type="button"
+                      onClick={() => setEventsPage(pg)}
+                      className={`min-w-[28px] h-7 px-2 rounded-lg text-xs font-bold transition-colors ${
+                        eventsPage === pg
+                          ? "bg-slate-900 text-white shadow-2xs"
+                          : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      {pg}
+                    </button>
+                  );
+                } else if (
+                  (pg === 2 && eventsPage > 3) ||
+                  (pg === totalEventsPages - 1 && eventsPage < totalEventsPages - 2)
+                ) {
+                  return <span key={pg} className="px-1 text-slate-400">...</span>;
+                }
+                return null;
+              })}
+
+              <button
+                type="button"
+                disabled={eventsPage >= totalEventsPages}
+                onClick={() => setEventsPage((prev) => Math.min(totalEventsPages, prev + 1))}
+                className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Event-Type Waste Intelligence & Dish Comparison Workspace (Positioned below Events Management) */}
@@ -932,6 +1025,11 @@ export const EventsSubtab: React.FC<EventsSubtabProps> = ({
         initialDatePreset={datePreset}
         isEmbeddedInEventsPage={true}
       />
+
+      {/* Cross-Event Audience Appetite Comparison Section (when data is present) */}
+      {crossEventData && (
+        <CrossEventComparisonSection comparisonData={crossEventData} />
+      )}
 
       {/* CREATE EVENT MODAL */}
       {createModalOpen && (

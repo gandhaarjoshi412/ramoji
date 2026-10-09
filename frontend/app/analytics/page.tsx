@@ -427,6 +427,7 @@ export default function AnalyticsPage() {
             <HotelsSubtab
               selectedHotel={filters.hotel || "all"}
               onSelectHotel={(hotelName) => handleFilterChange({ hotel: hotelName })}
+              onChangeTab={setActiveTab}
               datePreset={filters.date_preset}
               startDate={filters.start_date}
               endDate={filters.end_date}
