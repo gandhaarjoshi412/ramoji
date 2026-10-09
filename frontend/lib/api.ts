@@ -16,9 +16,11 @@ const API_BASE = getApiBase();
 
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  data?: any;
+  constructor(message: string, status: number, data?: any) {
     super(message);
     this.status = status;
+    this.data = data;
   }
 }
 
@@ -174,8 +176,19 @@ export async function apiRequest<T>(
         }
       }
     }
-    const errorMsg = data?.detail || res.statusText || "Request failed";
-    throw new ApiError(errorMsg, res.status);
+    let errorMsg = res.statusText || "Request failed";
+    if (data?.detail) {
+      if (typeof data.detail === "string") {
+        errorMsg = data.detail;
+      } else if (Array.isArray(data.detail)) {
+        errorMsg = data.detail.map((d: any) => d.msg || JSON.stringify(d)).join("; ");
+      } else if (typeof data.detail === "object") {
+        errorMsg = data.detail.message || JSON.stringify(data.detail);
+      }
+    } else if (data?.message && typeof data.message === "string") {
+      errorMsg = data.message;
+    }
+    throw new ApiError(errorMsg, res.status, data);
   }
 
   return data as T;

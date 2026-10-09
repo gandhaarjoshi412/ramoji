@@ -959,77 +959,139 @@ async def confirm_upload(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    content = await file.read()
-    filename = file.filename or "uploaded_report.xlsx"
+    try:
+        content = await file.read()
+        filename = file.filename or "uploaded_report.xlsx"
 
-    parsed_date = None
-    if date_override and date_override.strip():
-        try:
-            parsed_date = datetime.strptime(date_override.strip(), "%Y-%m-%d").date()
-        except Exception:
-            pass
+        parsed_date = None
+        if date_override and date_override.strip():
+            try:
+                parsed_date = datetime.strptime(date_override.strip(), "%Y-%m-%d").date()
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid service date '{date_override}'. Please provide a valid date formatted as YYYY-MM-DD."
+                )
 
-    records, warnings = parse_and_normalize_report(
-        content=content,
-        filename=filename,
-        sheet_name_filter=sheet_name if sheet_name != "all" else None,
-        hotel_override=hotel_override.strip() if hotel_override and hotel_override.strip() else None,
-        event_override=event_override.strip() if event_override and event_override.strip() else None,
-        date_override=parsed_date,
-    )
-
-    if not records:
-        raise HTTPException(
-            status_code=400,
-            detail="Could not extract valid records from report. Ensure file is a supported spreadsheet (.xlsx, .xls, .csv), PDF, or document."
+        records, warnings = parse_and_normalize_report(
+            content=content,
+            filename=filename,
+            sheet_name_filter=sheet_name if sheet_name != "all" else None,
+            hotel_override=hotel_override.strip() if hotel_override and hotel_override.strip() else None,
+            event_override=event_override.strip() if event_override and event_override.strip() else None,
+            date_override=parsed_date,
         )
 
-    # Handle duplicate actions
-    if duplicate_action == "skip":
-        sample_h = records[0].get("hotel_name")
-        sample_d = records[0].get("record_date")
-        existing_recs = db.query(AnalyticsRecord).filter(
-            AnalyticsRecord.hotel_name == sample_h,
-            AnalyticsRecord.record_date == sample_d
-        ).count()
-        if existing_recs > 0:
-            return {
-                "status": "skipped",
-                "message": f"Import skipped: {existing_recs} records already exist for {sample_h} on {sample_d}.",
-                "inserted_records": 0,
-                "filename": filename,
-            }
+        if not records:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Could not extract valid records from '{filename}'. Please ensure the file is a supported spreadsheet (.xlsx, .xls, .csv) with dish rows and quantity data."
+            )
 
-    elif duplicate_action == "replace":
-        # Remove existing records matching these hotels and dates
-        unique_targets = {(r.get("hotel_name"), r.get("record_date")) for r in records}
+        # Handle duplicate actions
+        if duplicate_action == "skip":
+            sample_h = records[0].get("hotel_name")
+            sample_d = records[0].get("record_date")
+            existing_recs = db.query(AnalyticsRecord).filter(
+                AnalyticsRecord.hotel_name == sample_h,
+                AnalyticsRecord.record_date == sample_d
+            ).count()
+            if existing_recs > 0:
+                return {
+                    "status": "skipped",
+                    "message": f"Import skipped: {existing_recs} records already exist for {sample_h} on {sample_d}. No records were added or modified.",
+                    "inserted_records": 0,
+                    "filename": filename,
+                }
+
         deleted_count = 0
-        for h, d in unique_targets:
-            if h and d:
-                del_q = db.query(AnalyticsRecord).filter(
-                    AnalyticsRecord.hotel_name == h,
-                    AnalyticsRecord.record_date == d
-                ).delete(synchronize_session=False)
-                deleted_count += del_q
-        db.flush()
+        if duplicate_action == "replace":
+            # Remove existing records matching these hotels and dates
+            unique_targets = {(r.get("hotel_name"), r.get("record_date")) for r in records}
+            for h, d in unique_targets:
+                if h and d:
+                    del_q = db.query(AnalyticsRecord).filter(
+                        AnalyticsRecord.hotel_name == h,
+                        AnalyticsRecord.record_date == d
+                    ).delete(synchronize_session=False)
+                    deleted_count += del_q
+            db.flush()
 
-    batch_import_id = str(uuid.uuid4())
-    inserted = 0
-    for r in records:
-        r["import_id"] = batch_import_id
-        rec = AnalyticsRecord(**r)
-        db.add(rec)
-        inserted += 1
+        batch_import_id = str(uuid.uuid4())
+        inserted = 0
+        for r in records:
+            r["import_id"] = batch_import_id
+            rec = AnalyticsRecord(**r)
+            db.add(rec)
+            inserted += 1
 
-    db.commit()
-    return {
-        "status": "success",
-        "import_id": batch_import_id,
-        "inserted_records": inserted,
-        "filename": filename,
-        "sheet_name": sheet_name,
-        "warnings": warnings[:5],
-    }
+        db.commit()
+
+        # Build detailed live summary metrics from the committed records
+        total_prod_kg = round(sum(float(r.get("actual_production_kg", 0) or 0) for r in records), 2)
+        total_cons_kg = round(sum(float(r.get("actual_consumption_kg", 0) or 0) for r in records), 2)
+        total_left_kg = round(sum(float(r.get("total_leftover_kg", 0) or 0) for r in records), 2)
+        total_waste_kg = round(sum(float(r.get("total_waste_kg", 0) or 0) for r in records), 2)
+        total_waste_cost = round(sum(float(r.get("waste_cost", 0) or 0) for r in records), 2)
+        total_reuse_kg = round(sum(float(r.get("reuse_quantity_kg", 0) or 0) for r in records), 2)
+
+        unique_hotels = sorted(list({str(r.get("hotel_name")) for r in records if r.get("hotel_name")}))
+        unique_dates = sorted(list({str(r.get("record_date")) for r in records if r.get("record_date")}))
+        unique_events = sorted(list({str(r.get("event_name")) for r in records if r.get("event_name")}))
+        unique_sessions = sorted(list({str(r.get("session")) for r in records if r.get("session")}))
+        unique_service_types = sorted(list({str(r.get("service_type")) for r in records if r.get("service_type")}))
+        unique_dishes = list({str(r.get("dish_name")) for r in records if r.get("dish_name")})
+
+        top_waste_dishes = sorted(records, key=lambda x: float(x.get("total_waste_kg", 0) or 0), reverse=True)[:5]
+        top_dishes_summary = [
+            {
+                "dish_name": d.get("dish_name"),
+                "category": d.get("dish_category") or "Main Course",
+                "production_kg": round(float(d.get("actual_production_kg", 0) or 0), 2),
+                "waste_kg": round(float(d.get("total_waste_kg", 0) or 0), 2),
+                "waste_cost": round(float(d.get("waste_cost", 0) or 0), 2),
+                "session": d.get("session") or "General",
+            }
+            for d in top_waste_dishes
+        ]
+
+        waste_pct = round((total_waste_kg / total_prod_kg * 100), 1) if total_prod_kg > 0 else 0.0
+
+        return {
+            "status": "success",
+            "import_id": batch_import_id,
+            "inserted_records": inserted,
+            "filename": filename,
+            "sheet_name": sheet_name,
+            "warnings": warnings[:5],
+            "summary": {
+                "hotels": unique_hotels,
+                "dates": unique_dates,
+                "events": unique_events,
+                "sessions": unique_sessions,
+                "service_types": unique_service_types,
+                "dishes_count": len(unique_dishes),
+                "total_production_kg": total_prod_kg,
+                "total_consumption_kg": total_cons_kg,
+                "total_leftover_kg": total_left_kg,
+                "total_waste_kg": total_waste_kg,
+                "total_waste_cost": total_waste_cost,
+                "total_reuse_kg": total_reuse_kg,
+                "waste_percentage": waste_pct,
+                "top_waste_dishes": top_dishes_summary,
+                "replaced_records": deleted_count,
+                "duplicate_action": duplicate_action,
+                "imported_at": datetime.now().isoformat(),
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to process and store Excel report: {str(e)}"
+        )
 
 @router.get("/api/analytics/records")
 def get_analytics_records_ledger(

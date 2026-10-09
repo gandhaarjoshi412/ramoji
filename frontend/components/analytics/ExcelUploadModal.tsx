@@ -2,6 +2,7 @@
 
 import React, { useState, useRef } from "react";
 import { apiRequest, formatINR, formatKg } from "@/lib/api";
+import { UploadConfirmResponse } from "@/types/analytics";
 import {
   Upload,
   FileSpreadsheet,
@@ -21,12 +22,17 @@ import {
   FileText,
   Image as ImageIcon,
   Check,
+  Copy,
+  RotateCcw,
+  BadgeAlert,
+  Table,
+  TrendingUp,
 } from "lucide-react";
 
 interface ExcelUploadModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onUploadSuccess: () => void;
+  onUploadSuccess: (confirmedData?: UploadConfirmResponse) => void;
 }
 
 export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
@@ -48,16 +54,60 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
   const [eventOverride, setEventOverride] = useState("");
   const [duplicateAction, setDuplicateAction] = useState<"import" | "replace" | "skip">("replace");
 
+  // Post-import confirmation and skipped states
+  const [confirmResult, setConfirmResult] = useState<UploadConfirmResponse | null>(null);
+  const [skippedNotice, setSkippedNotice] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   if (!isOpen) return null;
 
+  const resetAll = () => {
+    setFile(null);
+    setAnalyzing(false);
+    setImporting(false);
+    setError(null);
+    setPreviewData(null);
+    setSelectedSheet("all");
+    setShowFieldMappings(false);
+    setHotelOverride("");
+    setDateOverride("");
+    setEventOverride("");
+    setDuplicateAction("replace");
+    setConfirmResult(null);
+    setSkippedNotice(null);
+    setCopiedId(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleModalClose = () => {
+    if (confirmResult && confirmResult.status === "success") {
+      onUploadSuccess(confirmResult);
+    }
+    onClose();
+    setTimeout(() => {
+      resetAll();
+    }, 200);
+  };
+
+  const handleCopyId = (id: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(id);
+      setCopiedId(true);
+      setTimeout(() => setCopiedId(false), 2000);
+    }
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
     if (!selected) return;
+
     setFile(selected);
     setError(null);
     setPreviewData(null);
+    setConfirmResult(null);
+    setSkippedNotice(null);
 
     // Call intelligent preview & structure detection API
     setAnalyzing(true);
@@ -79,34 +129,46 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
         setEventOverride(res.sheets[0].event_name || "");
       }
     } catch (err: any) {
-      setError(err.message || "Failed to analyze and parse operational report");
+      setError(err?.message || "Failed to analyze and parse operational report");
     } finally {
       setAnalyzing(false);
     }
   };
 
-  const handleConfirmImport = async () => {
+  const handleConfirmImport = async (overrideDupAction?: "import" | "replace" | "skip") => {
     if (!file) return;
     setImporting(true);
     setError(null);
+    setSkippedNotice(null);
+
+    const actionToUse = overrideDupAction || duplicateAction;
+
     try {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("sheet_name", selectedSheet);
-      formData.append("duplicate_action", duplicateAction);
+      formData.append("duplicate_action", actionToUse);
       if (hotelOverride.trim()) formData.append("hotel_override", hotelOverride.trim());
       if (dateOverride.trim()) formData.append("date_override", dateOverride.trim());
       if (eventOverride.trim()) formData.append("event_override", eventOverride.trim());
 
-      await apiRequest<any>("/api/analytics/upload/confirm", {
+      const res = await apiRequest<UploadConfirmResponse>("/api/analytics/upload/confirm", {
         method: "POST",
         body: formData,
       });
 
-      onUploadSuccess();
-      onClose();
+      if (res.status === "skipped") {
+        setSkippedNotice(
+          res.message || "Import skipped: Existing records detected for this property and date."
+        );
+      } else if (res.status === "success") {
+        setConfirmResult(res);
+      } else {
+        setError(res.message || "Unexpected server response during import commit.");
+      }
     } catch (err: any) {
-      setError(err.message || "Failed to commit analytics import to database");
+      // Custom error returned from server or network
+      setError(err?.message || "Failed to commit analytics import to database");
     } finally {
       setImporting(false);
     }
@@ -120,40 +182,498 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in">
       <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[92vh] overflow-y-auto border border-slate-200 shadow-2xl p-6 space-y-5">
-        {/* Modal Header */}
+        
+        {/* ================================================================= */}
+        {/* MODAL HEADER                                                      */}
+        {/* ================================================================= */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-100">
           <div>
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[10px] uppercase font-bold tracking-widest text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
-                Universal Hospitality Data Ingestion Engine
+              <span
+                className={`w-2.5 h-2.5 rounded-full ${
+                  confirmResult
+                    ? "bg-emerald-500"
+                    : error
+                    ? "bg-rose-500"
+                    : "bg-emerald-500 animate-pulse"
+                }`}
+              />
+              <span
+                className={`text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded-full ${
+                  confirmResult
+                    ? "text-emerald-700 bg-emerald-50"
+                    : error
+                    ? "text-rose-700 bg-rose-50"
+                    : "text-emerald-700 bg-emerald-50"
+                }`}
+              >
+                {confirmResult
+                  ? "Ingestion Confirmed & Ledger Synced"
+                  : error
+                  ? "Ingestion Error Encountered"
+                  : "Universal Hospitality Data Ingestion Engine"}
               </span>
             </div>
             <h2 className="font-serif text-xl font-bold text-slate-900 mt-1">
-              Import Food Production & Operational Report
+              {confirmResult
+                ? "Excel Report Ingestion Confirmed"
+                : error
+                ? "Data Not Added: Ingestion Error"
+                : "Import Food Production & Operational Report"}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Intelligent multi-format semantic parser for Excel, CSV, PDF, and scanned logs
+              {confirmResult
+                ? "All verified operational food items have been permanently saved to the analytics database"
+                : error
+                ? "The report could not be ingested. See the exact error details below"
+                : "Intelligent multi-format semantic parser for Excel (.xlsx, .xls, .csv), PDF, and scanned logs"}
             </p>
           </div>
 
           <button
-            onClick={onClose}
+            onClick={handleModalClose}
             className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
+            title="Close modal"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {/* ================================================================= */}
+        {/* STATE 1: ERROR VIEW (CUSTOM ERROR, NOTHING ELSE)                  */}
+        {/* ================================================================= */}
         {error && (
-          <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-semibold flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-            <span>{error}</span>
+          <div className="space-y-4 py-2 animate-in fade-in zoom-in-95">
+            <div className="p-5 bg-rose-50/80 border-2 border-rose-300 rounded-2xl space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-rose-100 rounded-xl text-rose-700 shrink-0 mt-0.5">
+                  <BadgeAlert className="w-6 h-6" />
+                </div>
+                <div className="space-y-1 flex-1">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-rose-900">
+                      Excel Ingestion Failed — Data Not Added
+                    </h3>
+                    <span className="px-2 py-0.5 text-[10px] font-bold bg-rose-200/80 text-rose-800 rounded-full">
+                      Zero Records Modified
+                    </span>
+                  </div>
+                  <p className="text-xs text-rose-700 leading-relaxed">
+                    The requested Excel operational report was not added to the database. The system encountered the following custom error during validation or commit:
+                  </p>
+                </div>
+              </div>
+
+              {/* Exact Custom Error Box */}
+              <div className="p-3.5 bg-white border border-rose-200 rounded-xl shadow-xs">
+                <div className="text-[10px] font-bold text-rose-400 uppercase tracking-wider mb-1">
+                  Server Custom Error Detail
+                </div>
+                <p className="font-mono text-xs font-semibold text-rose-900 whitespace-pre-wrap break-words">
+                  {error}
+                </p>
+              </div>
+
+              {file && (
+                <div className="flex items-center gap-2 text-xs text-rose-700 pt-1">
+                  <FileSpreadsheet className="w-4 h-4 text-rose-500" />
+                  <span className="font-medium">Attempted File:</span>
+                  <span className="font-bold">{file.name}</span>
+                  <span className="text-rose-500">
+                    ({(file.size / 1024).toFixed(1)} KB)
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Error Actions */}
+            <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={resetAll}
+                className="px-4 py-2.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all cursor-pointer flex items-center gap-2"
+              >
+                <RotateCcw className="w-4 h-4 text-slate-500" />
+                Upload a Different File
+              </button>
+
+              {previewData && (
+                <button
+                  type="button"
+                  onClick={() => handleConfirmImport()}
+                  disabled={importing}
+                  className="px-4 py-2.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-2 disabled:opacity-50"
+                >
+                  {importing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Retrying...
+                    </>
+                  ) : (
+                    <>
+                      <RotateCcw className="w-4 h-4" />
+                      Retry Import
+                    </>
+                  )}
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={handleModalClose}
+                className="px-4 py-2.5 text-xs font-semibold text-slate-500 hover:text-slate-800 cursor-pointer"
+              >
+                Dismiss & Close
+              </button>
+            </div>
           </div>
         )}
 
-        {/* File Drag and Drop Zone */}
-        {!file && (
+        {/* ================================================================= */}
+        {/* STATE 2: SKIPPED DUPLICATE NOTICE                                 */}
+        {/* ================================================================= */}
+        {skippedNotice && !error && !confirmResult && (
+          <div className="space-y-4 py-2 animate-in fade-in">
+            <div className="p-5 bg-amber-50 border-2 border-amber-300 rounded-2xl space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-amber-100 rounded-xl text-amber-700 shrink-0 mt-0.5">
+                  <ShieldAlert className="w-6 h-6" />
+                </div>
+                <div className="space-y-1 flex-1">
+                  <h3 className="text-sm font-bold text-amber-900">
+                    Import Skipped — 0 Records Added
+                  </h3>
+                  <p className="text-xs text-amber-800 leading-relaxed font-medium">
+                    {skippedNotice}
+                  </p>
+                  <p className="text-xs text-amber-700 pt-1">
+                    Because your duplicate setting was set to <strong>&quot;Skip Duplicate&quot;</strong>, existing records in the database were preserved and no duplicate data was inserted.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => handleConfirmImport("replace")}
+                  disabled={importing}
+                  className="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-2"
+                >
+                  {importing ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  ) : (
+                    <RotateCcw className="w-4 h-4" />
+                  )}
+                  Replace Existing Records With This File
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleConfirmImport("import")}
+                  disabled={importing}
+                  className="px-4 py-2 text-xs font-bold text-slate-800 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-all cursor-pointer"
+                >
+                  Import as Additional Records
+                </button>
+
+                <button
+                  type="button"
+                  onClick={resetAll}
+                  className="px-3 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                >
+                  Cancel / Choose Different File
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================================================================= */}
+        {/* STATE 3: CONFIRMED VIEW (DETAILED CONFIRMATION, ZERO PLACEHOLDER)  */}
+        {/* ================================================================= */}
+        {confirmResult && !error && (
+          <div className="space-y-5 py-1 animate-in fade-in zoom-in-95">
+            {/* Success Hero Banner */}
+            <div className="p-5 bg-gradient-to-br from-emerald-50 via-teal-50/50 to-emerald-50 border-2 border-emerald-300 rounded-2xl relative overflow-hidden">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shadow-md shadow-emerald-500/20 shrink-0">
+                    <CheckCircle2 className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        LIVE DATABASE COMMIT VERIFIED
+                      </span>
+                      <span className="text-xs text-slate-400">
+                        {confirmResult.summary?.imported_at
+                          ? new Date(confirmResult.summary.imported_at).toLocaleTimeString("en-IN", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : "Just now"}
+                      </span>
+                    </div>
+                    <h3 className="font-serif text-lg font-bold text-slate-900 mt-0.5">
+                      {confirmResult.filename} Ingested Successfully
+                    </h3>
+                    <p className="text-xs text-emerald-900 font-semibold">
+                      +{confirmResult.inserted_records} live food production & waste records committed to database ledger
+                    </p>
+                  </div>
+                </div>
+
+                {/* Import Batch UUID Pill */}
+                {confirmResult.import_id && (
+                  <div className="bg-white/90 border border-emerald-200/90 rounded-xl p-2.5 text-right shrink-0 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                      Transaction Batch ID
+                    </span>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <code className="text-[11px] font-mono font-bold text-slate-800 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">
+                        {confirmResult.import_id.slice(0, 13)}...
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyId(confirmResult.import_id!)}
+                        title="Copy full transaction ID"
+                        className="p-1 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors cursor-pointer"
+                      >
+                        {copiedId ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Core Operational Context Grid */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">
+                Committed Operational Attributes & Context:
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                    Property / Hotel
+                  </span>
+                  <span className="font-bold text-slate-900 text-sm mt-0.5 block truncate">
+                    {confirmResult.summary?.hotels?.join(", ") || hotelOverride || "Hotel Sahara"}
+                  </span>
+                </div>
+
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                    Service Date
+                  </span>
+                  <span className="font-bold text-slate-900 text-sm mt-0.5 block truncate">
+                    {confirmResult.summary?.dates?.join(", ") || dateOverride || "Today"}
+                  </span>
+                </div>
+
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                    Function / Event
+                  </span>
+                  <span className="font-bold text-slate-900 text-sm mt-0.5 block truncate">
+                    {confirmResult.summary?.events?.join(", ") || eventOverride || "Banquet Service"}
+                  </span>
+                </div>
+
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                    Meal Session
+                  </span>
+                  <span className="font-bold text-slate-900 text-sm mt-0.5 block truncate">
+                    {confirmResult.summary?.sessions?.join(", ") || "Breakfast"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Key Ingested Metrics Grid */}
+            {confirmResult.summary && (
+              <div className="space-y-1.5">
+                <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">
+                  Aggregated Quantities & Financial Impact:
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
+                  <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase text-slate-500 block">
+                      Production Cooked
+                    </span>
+                    <span className="font-bold text-slate-900 text-base mt-0.5 block">
+                      {formatKg(confirmResult.summary.total_production_kg)}
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      {confirmResult.summary.dishes_count} unique items
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase text-emerald-800 block">
+                      Guest Consumption
+                    </span>
+                    <span className="font-bold text-emerald-700 text-base mt-0.5 block">
+                      {formatKg(confirmResult.summary.total_consumption_kg)}
+                    </span>
+                    <span className="text-[10px] text-emerald-600">
+                      Cleanly consumed
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-200 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase text-amber-800 block">
+                      Total Leftovers
+                    </span>
+                    <span className="font-bold text-amber-700 text-base mt-0.5 block">
+                      {formatKg(confirmResult.summary.total_leftover_kg)}
+                    </span>
+                    <span className="text-[10px] text-amber-600">
+                      Kitchen + Buffet return
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-rose-50/60 rounded-xl border border-rose-200 shadow-2xs">
+                    <span className="text-[10px] font-bold uppercase text-rose-800 block">
+                      Discarded Waste
+                    </span>
+                    <span className="font-bold text-rose-700 text-base mt-0.5 block">
+                      {formatKg(confirmResult.summary.total_waste_kg)}
+                    </span>
+                    <span className="text-[10px] text-rose-600 font-semibold">
+                      {confirmResult.summary.waste_percentage}% waste ratio
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 text-white shadow-2xs col-span-2 sm:col-span-1">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                      Waste Cost Impact
+                    </span>
+                    <span className="font-bold text-emerald-400 text-base mt-0.5 block">
+                      {formatINR(confirmResult.summary.total_waste_cost)}
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      Direct food cost
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Top Ingested Dishes Table */}
+            {confirmResult.summary?.top_waste_dishes &&
+              confirmResult.summary.top_waste_dishes.length > 0 && (
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">
+                    Verified Dishes Ingested (Top Waste Contributors):
+                  </span>
+                  <div className="overflow-x-auto rounded-xl border border-slate-200">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-slate-600 font-bold text-[10px] uppercase">
+                        <tr>
+                          <th className="p-2.5">Menu Item Name</th>
+                          <th className="p-2.5">Category</th>
+                          <th className="p-2.5">Session</th>
+                          <th className="p-2.5 text-right">Cooked (Kg)</th>
+                          <th className="p-2.5 text-right">Waste (Kg)</th>
+                          <th className="p-2.5 text-right">Waste Cost</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-medium">
+                        {confirmResult.summary.top_waste_dishes.map((d, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50">
+                            <td className="p-2.5 font-bold text-slate-900">
+                              {d.dish_name}
+                            </td>
+                            <td className="p-2.5 text-slate-600">
+                              <span className="px-2 py-0.5 bg-slate-100 rounded text-[10px] font-semibold">
+                                {d.category}
+                              </span>
+                            </td>
+                            <td className="p-2.5 text-slate-600">{d.session}</td>
+                            <td className="p-2.5 text-right text-slate-800">
+                              {formatKg(d.production_kg)}
+                            </td>
+                            <td className="p-2.5 text-right text-rose-700 font-bold">
+                              {formatKg(d.waste_kg)}
+                            </td>
+                            <td className="p-2.5 text-right text-slate-900 font-bold">
+                              {formatINR(d.waste_cost)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+            {/* Verification & Duplicate Handling Notice */}
+            <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl text-xs space-y-1 text-emerald-950 font-medium">
+              <div className="flex items-center gap-1.5 font-bold">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>
+                  Ledger Verification Passed •{" "}
+                  {confirmResult.summary?.duplicate_action === "replace"
+                    ? `Replaced ${confirmResult.summary.replaced_records} prior duplicate records`
+                    : "Appended as fresh batch records"}
+                </span>
+              </div>
+              <p className="text-[11px] text-emerald-800">
+                Mathematical equations balanced:{" "}
+                <span className="font-mono">
+                  Production = Consumed + Leftovers
+                </span>
+                . Ingested records are now active across executive KPI calculations, charts, and drilldowns.
+              </p>
+            </div>
+
+            {/* Non-fatal Warnings if any */}
+            {confirmResult.warnings && confirmResult.warnings.length > 0 && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 space-y-1">
+                <span className="font-bold flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600" /> Ingestion Notes & Warnings:
+                </span>
+                <ul className="list-disc list-inside space-y-0.5 text-[11px]">
+                  {confirmResult.warnings.map((w, idx) => (
+                    <li key={idx}>{w}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Confirmed Footer Actions */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={resetAll}
+                className="px-4 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                Upload Another Report
+              </button>
+
+              <button
+                type="button"
+                onClick={handleModalClose}
+                className="px-6 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md shadow-emerald-600/20 transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+              >
+                <Check className="w-4 h-4" />
+                Done & View in Analytics Dashboard
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ================================================================= */}
+        {/* STATE 4: FILE UPLOAD ZONE (WHEN NO FILE SELECTED YET)             */}
+        {/* ================================================================= */}
+        {!file && !error && !confirmResult && (
           <div
             onClick={() => fileInputRef.current?.click()}
             className="border-2 border-dashed border-slate-300 hover:border-emerald-500 rounded-2xl p-10 text-center bg-slate-50/70 hover:bg-emerald-50/20 transition-all cursor-pointer space-y-4"
@@ -190,7 +710,9 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
           </div>
         )}
 
-        {/* Loading Spinner during structure detection */}
+        {/* ================================================================= */}
+        {/* STATE 5: ANALYZING SPINNER                                        */}
+        {/* ================================================================= */}
         {analyzing && (
           <div className="py-12 text-center space-y-3">
             <Loader2 className="w-9 h-9 text-emerald-600 animate-spin mx-auto" />
@@ -205,8 +727,10 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
           </div>
         )}
 
-        {/* Preview State: Import Review Screen */}
-        {previewData && !analyzing && (
+        {/* ================================================================= */}
+        {/* STATE 6: PREVIEW & REVIEW STATE (BEFORE CONFIRMING)               */}
+        {/* ================================================================= */}
+        {previewData && !analyzing && !error && !confirmResult && !skippedNotice && (
           <div className="space-y-5">
             {/* File Info Bar */}
             <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs">
@@ -224,10 +748,7 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
               </div>
 
               <button
-                onClick={() => {
-                  setFile(null);
-                  setPreviewData(null);
-                }}
+                onClick={resetAll}
                 className="text-xs font-semibold text-rose-600 hover:underline cursor-pointer"
               >
                 Change File
@@ -485,40 +1006,39 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
                 Leftover and waste equations validated: <span className="font-mono">Production = Consumed + Leftover</span>, and <span className="font-mono">Leftover = Reuse + Waste</span>.
               </p>
             </div>
+
+            {/* Modal Footer Actions */}
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={resetAll}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+              >
+                Reset
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleConfirmImport()}
+                disabled={importing}
+                className="px-5 py-2.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50 rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+              >
+                {importing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                    Committing Live Records to Database...
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4 text-emerald-400" />
+                    Confirm & Commit to Analytics
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Modal Footer Actions */}
-        <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
-          >
-            Cancel
-          </button>
-
-          {previewData && (
-            <button
-              type="button"
-              onClick={handleConfirmImport}
-              disabled={importing}
-              className="px-5 py-2.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50 rounded-xl shadow-xs transition-all flex items-center gap-2 cursor-pointer active:scale-95"
-            >
-              {importing ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
-                  Importing Live Records...
-                </>
-              ) : (
-                <>
-                  <Check className="w-4 h-4 text-emerald-400" />
-                  Confirm & Commit to Analytics
-                </>
-              )}
-            </button>
-          )}
-        </div>
       </div>
     </div>
   );

@@ -3,11 +3,12 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, formatINR, formatKg } from "@/lib/api";
 import {
   AnalyticsFilterParams,
   AnalyticsOverviewResponse,
   DishDrillDownDetail,
+  UploadConfirmResponse,
 } from "@/types/analytics";
 
 import { GlobalFilterBar } from "@/components/analytics/GlobalFilterBar";
@@ -38,6 +39,8 @@ import {
   Layers,
   ChefHat,
   ArrowRight,
+  CheckCircle2,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -62,8 +65,16 @@ export default function AnalyticsPage() {
 
   // Modals state
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadConfirmation, setUploadConfirmation] = useState<UploadConfirmResponse | null>(null);
   const [selectedDishDetail, setSelectedDishDetail] = useState<DishDrillDownDetail | null>(null);
   const [loadingDishDrilldown, setLoadingDishDrilldown] = useState(false);
+
+  const handleUploadSuccess = (confirmedData?: UploadConfirmResponse) => {
+    if (confirmedData && confirmedData.status === "success") {
+      setUploadConfirmation(confirmedData);
+    }
+    fetchAnalytics();
+  };
 
   // Fetch overview data
   const fetchAnalytics = useCallback(async () => {
@@ -255,6 +266,108 @@ export default function AnalyticsPage() {
         </button>
       </div>
 
+      {/* Detailed Excel Ingestion Confirmation Banner (Live Database Commit) */}
+      {uploadConfirmation && (
+        <div className="bg-gradient-to-r from-emerald-50 via-teal-50/70 to-emerald-50 border-2 border-emerald-300 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3 animate-in fade-in slide-in-from-top-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    Live Excel Ingestion Confirmed
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    {uploadConfirmation.summary?.imported_at
+                      ? new Date(uploadConfirmation.summary.imported_at).toLocaleTimeString("en-IN", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "Just now"}
+                  </span>
+                </div>
+                <h3 className="font-serif text-base font-bold text-slate-900 mt-0.5">
+                  {uploadConfirmation.filename} Successfully Ingested & Committed
+                </h3>
+                <p className="text-xs text-emerald-900 font-semibold">
+                  +{uploadConfirmation.inserted_records} operational food records added to the database ledger. All analytics calculations updated.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              {uploadConfirmation.summary?.hotels?.[0] && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleFilterChange({
+                      hotel: uploadConfirmation.summary?.hotels?.[0] || "all",
+                      start_date: uploadConfirmation.summary?.dates?.[0],
+                      end_date: uploadConfirmation.summary?.dates?.[0],
+                      date_preset: uploadConfirmation.summary?.dates?.[0] ? "custom" : "all",
+                    });
+                  }}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Filter to This Report ({uploadConfirmation.summary.hotels[0]})
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setUploadConfirmation(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
+                title="Dismiss confirmation banner"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Metrics Badges */}
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 pt-1 text-xs">
+            <div className="bg-white/80 border border-emerald-200/80 rounded-lg p-2">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Property</span>
+              <span className="font-bold text-slate-900 truncate block">
+                {uploadConfirmation.summary?.hotels?.join(", ") || "N/A"}
+              </span>
+            </div>
+            <div className="bg-white/80 border border-emerald-200/80 rounded-lg p-2">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Date</span>
+              <span className="font-bold text-slate-900 truncate block">
+                {uploadConfirmation.summary?.dates?.join(", ") || "N/A"}
+              </span>
+            </div>
+            <div className="bg-white/80 border border-emerald-200/80 rounded-lg p-2">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Cooked</span>
+              <span className="font-bold text-slate-900 block">
+                {formatKg(uploadConfirmation.summary?.total_production_kg || 0)}
+              </span>
+            </div>
+            <div className="bg-white/80 border border-emerald-200/80 rounded-lg p-2">
+              <span className="text-[10px] uppercase font-bold text-emerald-700 block">Consumed</span>
+              <span className="font-bold text-emerald-800 block">
+                {formatKg(uploadConfirmation.summary?.total_consumption_kg || 0)}
+              </span>
+            </div>
+            <div className="bg-white/80 border border-emerald-200/80 rounded-lg p-2">
+              <span className="text-[10px] uppercase font-bold text-rose-700 block">Wasted</span>
+              <span className="font-bold text-rose-800 block">
+                {formatKg(uploadConfirmation.summary?.total_waste_kg || 0)}
+              </span>
+            </div>
+            <div className="bg-slate-900 text-white rounded-lg p-2">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Waste Cost</span>
+              <span className="font-bold text-emerald-400 block">
+                {formatINR(uploadConfirmation.summary?.total_waste_cost || 0)}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Global Filter Bar */}
       <GlobalFilterBar
         filters={filters}
@@ -394,7 +507,7 @@ export default function AnalyticsPage() {
       <ExcelUploadModal
         isOpen={uploadModalOpen}
         onClose={() => setUploadModalOpen(false)}
-        onUploadSuccess={fetchAnalytics}
+        onUploadSuccess={handleUploadSuccess}
       />
     </div>
   );

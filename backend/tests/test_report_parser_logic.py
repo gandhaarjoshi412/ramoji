@@ -98,6 +98,14 @@ def test_api_upload_preview_and_confirm(auth_headers):
     confirm_data = res_confirm.json()
     assert confirm_data["status"] == "success"
     assert confirm_data["inserted_records"] == 42
+    assert "summary" in confirm_data
+    summary = confirm_data["summary"]
+    assert summary["total_production_kg"] == 328.40
+    assert summary["total_waste_kg"] == 23.00
+    assert summary["dishes_count"] == 42
+    assert len(summary["top_waste_dishes"]) > 0
+    assert "dish_name" in summary["top_waste_dishes"][0]
+    assert "waste_kg" in summary["top_waste_dishes"][0]
     import_id = confirm_data["import_id"]
 
     # 3. Verify ledger records with traceability
@@ -134,8 +142,19 @@ def test_api_upload_preview_and_confirm(auth_headers):
     )
     assert skip_res.status_code == 200
     assert skip_res.json()["status"] == "skipped"
+    assert "already exist" in skip_res.json()["message"]
 
-    # 6. Rollback import
+    # 6. Test custom error handling on invalid file
+    bad_res = client.post(
+        "/api/analytics/upload/confirm",
+        files={"file": ("corrupted.xlsx", io.BytesIO(b"not an excel file"), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        data={"sheet_name": "all"},
+        headers=auth_headers
+    )
+    assert bad_res.status_code == 400
+    assert "Failed to process and store Excel report" in bad_res.json()["detail"]
+
+    # 7. Rollback import
     rb_res = client.delete(f"/api/analytics/imports/{import_id}", headers=auth_headers)
     assert rb_res.status_code == 200
     assert rb_res.json()["deleted_records"] == 42

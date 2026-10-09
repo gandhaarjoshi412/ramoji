@@ -399,3 +399,43 @@ export interface AnalyticsOverviewResponse {
   data_quality: DataQualityReport;
   raw_records: NormalizedFoodRecord[];
 }
+
+export interface UploadConfirmSummaryDish {
+  dish_name: string;
+  category: string;
+  production_kg: number;
+  waste_kg: number;
+  waste_cost: number;
+  session: string;
+}
+
+export interface UploadConfirmSummary {
+  hotels: string[];
+  dates: string[];
+  events: string[];
+  sessions: string[];
+  service_types: string[];
+  dishes_count: number;
+  total_production_kg: number;
+  total_consumption_kg: number;
+  total_leftover_kg: number;
+  total_waste_kg: number;
+  total_waste_cost: number;
+  total_reuse_kg: number;
+  waste_percentage: number;
+  top_waste_dishes: UploadConfirmSummaryDish[];
+  replaced_records: number;
+  duplicate_action: string;
+  imported_at: string;
+}
+
+export interface UploadConfirmResponse {
+  status: "success" | "skipped" | "error";
+  import_id?: string;
+  inserted_records: number;
+  filename: string;
+  sheet_name?: string;
+  message?: string;
+  warnings?: string[];
+  summary?: UploadConfirmSummary;
+}
