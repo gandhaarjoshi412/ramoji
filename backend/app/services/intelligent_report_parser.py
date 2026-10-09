@@ -14,6 +14,41 @@ from pypdf import PdfReader
 # =========================================================================
 
 SYNONYMS: Dict[str, List[str]] = {
+    # Converted kg columns from 'CONVERT IN KGS' section
+    "converted_production_kg": [
+        "convert in kgs - actually production",
+        "convert in kgs ( day total in all session ) - actually production",
+        "convert in kgs - actual production",
+        "actually production in kgs",
+        "converted production",
+    ],
+    "converted_pickup_kg": [
+        "convert in kgs - pickup",
+        "convert in kgs ( day total in all session ) - pickup",
+        "converted pickup",
+    ],
+    "converted_kitchen_leftover_kg": [
+        "convert in kgs - kitchen left over",
+        "convert in kgs ( day total in all session ) - kitchen left over",
+        "convert in kgs - kitchen leftover",
+    ],
+    "converted_buffet_leftover_kg": [
+        "convert in kgs - location return food",
+        "convert in kgs ( day total in all session ) - location return food",
+        "convert in kgs - buffet left over",
+    ],
+    "converted_reuse_kg": [
+        "convert in kgs - re-use kgs",
+        "convert in kgs ( day total in all session ) - re-use kgs",
+        "convert in kgs - re-use",
+        "convert in kgs - reuse",
+    ],
+    "converted_waste_kg": [
+        "convert in kgs - total wastage in kgs",
+        "convert in kgs ( day total in all session ) - total wastage in kgs",
+        "convert in kgs - wastage in kgs",
+        "convert in kgs - total waste in kgs",
+    ],
     "date": [
         "date",
         "service date",
@@ -420,7 +455,7 @@ def parse_date_flexible(val: Any) -> Optional[date]:
 # 3. METADATA EXTRACTION FROM TITLE & HEADERS
 # =========================================================================
 
-def extract_metadata_from_text(text: str) -> Dict[str, Any]:
+def extract_metadata_from_text(text: str, sheet_name: str = "", filename: str = "") -> Dict[str, Any]:
     meta: Dict[str, Any] = {
         "event_name": None,
         "event_type": None,
@@ -432,13 +467,44 @@ def extract_metadata_from_text(text: str) -> Dict[str, Any]:
         "hotel_name": None,
         "confidence": 0.85,
     }
-    if not text or not text.strip():
+    combined_ctx = f"{text} {sheet_name} {filename}".strip()
+    if not combined_ctx:
         return meta
 
     # 1. Date extraction
-    parsed_d = parse_date_flexible(text)
-    if parsed_d:
-        meta["date_str"] = str(parsed_d)
+    # A. Check sheet name first if it represents a daily date pattern (e.g. 01.08.26 or 07.10.2026)
+    sheet_clean = sheet_name.strip()
+    sheet_date_m = re.search(r'^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})', sheet_clean)
+    if sheet_date_m:
+        g = sheet_date_m.groups()
+        d_val, m_val, y_val = int(g[0]), int(g[1]), int(g[2])
+        if y_val < 100:
+            y_val += 2000
+        meta["date_str"] = f"{y_val:04d}-{m_val:02d}-{d_val:02d}"
+
+    # B. If not in sheet name, check text content
+    if not meta["date_str"]:
+        date_patterns = [
+            r'(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})',
+            r'(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})',
+            r'(\d{1,2})[/.-](\d{1,2})[/.-](\d{2})',
+        ]
+        for pat in date_patterns:
+            m = re.search(pat, text)
+            if m:
+                g = m.groups()
+                if len(g[0]) == 4:
+                    meta["date_str"] = f"{g[0]}-{g[1].zfill(2)}-{g[2].zfill(2)}"
+                else:
+                    y_part = int(g[2])
+                    if y_part < 100:
+                        y_part += 2000
+                    meta["date_str"] = f"{y_part:04d}-{g[1].zfill(2)}-{g[0].zfill(2)}"
+                break
+        if not meta["date_str"]:
+            parsed_d = parse_date_flexible(text)
+            if parsed_d:
+                meta["date_str"] = str(parsed_d)
 
     # 2. Pax extraction
     pax_m = re.search(r'(\d+)\s*(?:PAX|PAX\'S|GUESTS|COVERS|PERSONS)', text, re.IGNORECASE)
@@ -446,13 +512,29 @@ def extract_metadata_from_text(text: str) -> Dict[str, Any]:
         meta["pax"] = int(pax_m.group(1))
 
     # 3. Hotel Name
-    hotel_m = re.search(r'(HOTEL\s+[A-Za-z]+(?:\s+(?!PRODUCTION|VS|REPORT|OPERATIONS|BANQUET|EVENT|BUFFET|DINNER|LUNCH|BREAKFAST|FOOD|ANNUAL|DAILY)[A-Za-z]+)?|DOLPHIN\s+HOTELS?|SITARA|SAHARA)', text, re.IGNORECASE)
-    if hotel_m:
-        raw_h = hotel_m.group(1).title()
-        meta["hotel_name"] = raw_h if "Hotel" in raw_h else f"Hotel {raw_h}"
+    ctx_lower = combined_ctx.lower()
+    if "sahara" in ctx_lower:
+        meta["hotel_name"] = "Hotel Sahara"
+    elif "sitara" in ctx_lower:
+        meta["hotel_name"] = "Hotel Sitara"
+    elif "dolphin" in ctx_lower:
+        meta["hotel_name"] = "Dolphin Hotels"
+    else:
+        # Check known Sitara / Dolphin Hotels venues
+        if any(v in ctx_lower for v in ["galaxy", "princess convention", "dream valley", "pst hall", "leg garden"]):
+            meta["hotel_name"] = "Hotel Sitara"
+        elif "production vs consumption" in ctx_lower or "daily wise" in ctx_lower:
+            meta["hotel_name"] = "Hotel Sahara"
+        elif any(v in ctx_lower for v in ["cocktail", "buffet lunch", "buffet dinner", "convention", "m/s."]):
+            meta["hotel_name"] = "Hotel Sitara"
+        else:
+            hotel_m = re.search(r'(HOTEL\s+[A-Za-z]+(?:\s+(?!PRODUCTION|VS|REPORT|OPERATIONS|BANQUET|EVENT|BUFFET|DINNER|LUNCH|BREAKFAST|FOOD|ANNUAL|DAILY)[A-Za-z]+)?|DOLPHIN\s+HOTELS?|SITARA|SAHARA)', text, re.IGNORECASE)
+            if hotel_m:
+                raw_h = hotel_m.group(1).title()
+                meta["hotel_name"] = raw_h if "Hotel" in raw_h else f"Hotel {raw_h}"
 
     # 4. Service Type
-    for st in ["Buffet", "À la carte", "A La Carte", "Room Service", "Dine-in", "Catering", "Banquet", "Live Counter"]:
+    for st in ["Cocktail", "Buffet", "À la carte", "A La Carte", "Room Service", "Dine-in", "Catering", "Banquet", "Live Counter"]:
         if st.lower() in text.lower():
             meta["service_type"] = normalize_service_type(st)
             break
@@ -469,18 +551,25 @@ def extract_metadata_from_text(text: str) -> Dict[str, Any]:
             meta["event_type"] = normalize_event_type(et)
             break
 
-    ev_m = re.search(r'(M/S\.\s*[A-Za-z0-9\s]+?(?:BIRTHDAY|WEDDING|PARTY|ANNIVERSARY|CONFERENCE|GROUP|FUNCTION))', text, re.IGNORECASE)
+    ev_m = re.search(r'(M/S\.\s*[^F\n\r]+?)(?:\s+(?:NON|VEG|COCKTAIL|BUFFET|DINNER|LUNCH|COOKED|FOR\s+\d+)|$)', text, re.IGNORECASE)
     if ev_m:
-        meta["event_name"] = ev_m.group(1).strip().title()
+        cleaned_ev = ev_m.group(1).strip().title()
+        cleaned_ev = re.sub(r'\s+Group.*$', '', cleaned_ev, flags=re.IGNORECASE)
+        meta["event_name"] = f"{cleaned_ev} Group" if "Birthday" not in cleaned_ev else cleaned_ev
+        if not meta["event_type"]:
+            meta["event_type"] = "Birthday" if "birthday" in text.lower() else "Corporate"
     elif "BIRTHDAY" in text.upper():
         m_b = re.search(r'([A-Za-z0-9\s]+?BIRTHDAY)', text, re.IGNORECASE)
         if m_b:
             meta["event_name"] = m_b.group(1).strip().title()
+            meta["event_type"] = "Birthday"
 
     # 7. Location
-    loc_m = re.search(r'AT\s+([A-Z0-9\s]+?)\s+(?:LOCATION|HALL|VENUE|GARDEN)', text, re.IGNORECASE)
+    loc_m = re.search(r'AT\s+([A-Z0-9\s]+?)\s+(?:LOCATION|HALL|VENUE|GARDEN|RESTAURANT)', text, re.IGNORECASE)
     if loc_m:
-        meta["location"] = f"{loc_m.group(1).strip().title()} Location"
+        meta["location"] = f"{loc_m.group(1).strip().title()}"
+        if not any(meta["location"].endswith(w) for w in ["Location", "Hall", "Restaurant", "Garden", "Venue"]):
+            meta["location"] += " Location"
 
     return meta
 
@@ -611,6 +700,8 @@ class SheetStructure:
         self.child_headers: List[str] = []
         self.segments: List[TableSegment] = []
         self.warnings: List[str] = []
+        self.is_summary_sheet: bool = False
+        self.is_single_sheet_target: bool = False
 
 def score_and_map_header(
     matrix: List[List[Any]],
@@ -663,7 +754,11 @@ def score_and_map_header(
                 continue
             if canon == "total_leftover" and ("buffet" in c_clean or "kitchen" in c_clean):
                 continue
-            if canon == "actual_production" and "estimation" in h_clean:
+            if canon == "actual_production" and ("estimation" in h_clean or "convert" in h_clean):
+                continue
+            if canon in ["pickup", "kitchen_leftover", "buffet_leftover", "total_leftover", "waste", "total_waste_kg"] and "convert" in h_clean:
+                continue
+            if canon.startswith("converted_") and "convert" not in h_clean:
                 continue
             if "per head" in c_clean or "per portion" in c_clean:
                 continue
@@ -713,11 +808,19 @@ def score_and_map_header(
 
     return col_map, col_conf, composite_headers, child_headers
 
-def analyze_sheet_structure(sheet_name: str, matrix: List[List[Any]]) -> SheetStructure:
+def analyze_sheet_structure(sheet_name: str, matrix: List[List[Any]], filename: str = "") -> SheetStructure:
     struct = SheetStructure(sheet_name, matrix)
     if not matrix or struct.total_rows == 0:
         struct.warnings.append("Sheet is completely empty")
         return struct
+
+    # 0. Check if this is an aggregated multi-day summary sheet (e.g. Sheet1 with SUMMARRY ON 10.08.26)
+    for r in range(min(15, struct.total_rows)):
+        row_str = " ".join(str(c) for c in matrix[r] if c is not None).upper()
+        if re.search(r'SUMMAR+Y\s+ON', row_str) or "DAILY WISE SUMMARY" in row_str or "CONSOLIDATED" in row_str:
+            struct.is_summary_sheet = True
+            struct.warnings.append(f"Sheet '{sheet_name}' is an aggregated multi-day summary sheet; skipped to avoid duplicate food items.")
+            break
 
     # 1. Search first 8 rows for document title and event metadata
     title_text_parts = []
@@ -727,7 +830,7 @@ def analyze_sheet_structure(sheet_name: str, matrix: List[List[Any]]) -> SheetSt
             if cell and isinstance(cell, str) and len(cell.strip()) > 8:
                 title_text_parts.append(cell.strip())
     combined_title = " ".join(title_text_parts)
-    struct.title_metadata = extract_metadata_from_text(combined_title)
+    struct.title_metadata = extract_metadata_from_text(combined_title, sheet_name=sheet_name, filename=filename)
 
     # 2. Score candidate header rows across the entire sheet
     header_candidates: List[Tuple[int, float]] = []
@@ -802,6 +905,10 @@ def parse_sheet_records(
     records: List[Dict[str, Any]] = []
     warnings: List[str] = []
 
+    if struct.is_summary_sheet:
+        warnings.append(f"Sheet '{struct.sheet_name}' is an aggregated multi-day summary sheet; skipped to avoid duplicate food items.")
+        return records, warnings
+
     m = struct.matrix
     h_idx = struct.header_row_idx
     col_map = dict(struct.column_mappings)
@@ -815,13 +922,13 @@ def parse_sheet_records(
     default_location = meta.get("location") or "Main Dining Hall"
     default_pax = meta.get("pax") or 0
 
-    if date_override:
+    if date_override and (not meta.get("date_str") or getattr(struct, "is_single_sheet_target", False)):
         default_date = date_override
     elif meta.get("date_str"):
         parsed_d = parse_date_flexible(meta["date_str"])
-        default_date = parsed_d or date.today()
+        default_date = parsed_d or date_override or date.today()
     else:
-        default_date = date.today()
+        default_date = date_override or date.today()
 
     current_session = meta.get("session") or "Breakfast"
     current_pax = default_pax
@@ -844,6 +951,18 @@ def parse_sheet_records(
 
         raw_dish = row[dish_col] if dish_col < len(row) else None
         raw_dish_str = str(raw_dish).strip() if raw_dish is not None else ""
+        raw_dish_upper = raw_dish_str.upper()
+        first_col_val = str(row[0]).strip().upper() if len(row) > 0 and row[0] is not None else ""
+
+        # Terminate when hitting end-of-sheet summary tables or grand total
+        if any(term in raw_dish_upper for term in [
+            "SUMMARY REPORT", "COOKED FOOD REPORT", "PARTICULARS", "TOTAL FOOD SALE AMOUNT",
+            "WASTAGE AMOUNT", "TOTAL RE USE FOOD", "GRAND TOTAL", "SUMMARRY"
+        ]) or any(term in first_col_val for term in [
+            "SUMMARY REPORT", "COOKED FOOD REPORT", "PARTICULARS", "TOTAL FOOD SALE AMOUNT",
+            "WASTAGE AMOUNT", "TOTAL RE USE FOOD", "GRAND TOTAL", "SUMMARRY"
+        ]):
+            break
 
         # 1. Check for Summary / Narrative section transition
         if is_summary_narrative_row(raw_dish_str, row):
@@ -863,7 +982,7 @@ def parse_sheet_records(
 
         # 3. Check for Metadata banner row (e.g. "Date: 25/08/2026 | Pax: 500")
         if len(row) > 0 and isinstance(row[0], str) and ("date" in row[0].lower() or "pax" in row[0].lower()):
-            row_meta = extract_metadata_from_text(" ".join(str(c) for c in row if c is not None))
+            row_meta = extract_metadata_from_text(" ".join(str(c) for c in row if c is not None), sheet_name=struct.sheet_name, filename=filename)
             if row_meta.get("date_str"):
                 p_d = parse_date_flexible(row_meta["date_str"])
                 if p_d: current_date = p_d
@@ -976,30 +1095,57 @@ def parse_sheet_records(
         if consumption == 0.0 and act_prod > 0.0 and total_left > 0.0:
             consumption = max(0.0, round(act_prod - total_left, 2))
 
-        # Weight conversion for pieces/pkts
-        is_pieces = uom.lower() in ["pcs", "pieces", "pkt", "pkts", "numbers", "nos"]
-        if is_pieces and conv_factor > 0.0 and conv_factor != 1.0:
-            act_prod_kg = round(act_prod * conv_factor, 2)
-            est_prod_kg = round(est_prod * conv_factor, 2)
-            over_prod_kg = round(over_prod * conv_factor, 2)
-            pickup_kg = round(pickup * conv_factor, 2)
-            kitchen_left_kg = round(kitchen_left * conv_factor, 2)
-            buffet_ret_kg = round(buffet_ret * conv_factor, 2)
-            total_left_kg = round(total_left * conv_factor, 2)
-            reuse_kg = round(reuse * conv_factor, 2)
-            cons_kg = round(consumption * conv_factor, 2)
-            waste_kg = round(waste_kg_explicit, 2) if waste_kg_explicit > 0 else round(waste * conv_factor, 2)
+        # 1. Native Converted Kilogram Columns from "CONVERT IN KGS" section (e.g. Sahara daily reports)
+        conv_prod_kg = clean_number(get_val("converted_production_kg"))
+        conv_pickup_kg = clean_number(get_val("converted_pickup_kg"))
+        conv_kitchen_kg = clean_number(get_val("converted_kitchen_leftover_kg"))
+        conv_buffet_kg = clean_number(get_val("converted_buffet_leftover_kg"))
+        conv_reuse_kg = clean_number(get_val("converted_reuse_kg"))
+        conv_waste_kg = clean_number(get_val("converted_waste_kg"))
+
+        if conv_prod_kg > 0.0:
+            act_prod_kg = conv_prod_kg
+            pickup_kg = conv_pickup_kg if conv_pickup_kg > 0.0 else conv_prod_kg
+            kitchen_left_kg = conv_kitchen_kg
+            buffet_ret_kg = conv_buffet_kg
+            total_left_kg = round(kitchen_left_kg + buffet_ret_kg, 2)
+            reuse_kg = conv_reuse_kg
+            waste_kg = conv_waste_kg if conv_waste_kg > 0.0 else (waste_kg_explicit if waste_kg_explicit > 0 else max(0.0, round(total_left_kg - reuse_kg, 2)))
+            cons_kg = max(0.0, round(act_prod_kg - total_left_kg, 2))
+            est_prod_kg = round(est_prod * conv_factor, 2) if (0.0 < conv_factor < 1.0) else (est_prod if act_prod == 0 else round(est_prod * (act_prod_kg / act_prod), 2))
+            over_prod_kg = max(0.0, round(act_prod_kg - est_prod_kg, 2))
         else:
-            waste_kg = round(waste_kg_explicit, 2) if waste_kg_explicit > 0 else round(waste, 2)
-            act_prod_kg = round(act_prod, 2)
-            est_prod_kg = round(est_prod, 2)
-            over_prod_kg = round(over_prod, 2)
-            pickup_kg = round(pickup, 2)
-            kitchen_left_kg = round(kitchen_left, 2)
-            buffet_ret_kg = round(buffet_ret, 2)
-            total_left_kg = round(total_left, 2)
-            reuse_kg = round(reuse, 2)
-            cons_kg = round(consumption, 2)
+            # 2. Heuristic unit conversion for pieces/pkts or when conv_factor < 1.0 (clerk typo defense)
+            is_pieces = uom.lower() in ["pcs", "pieces", "pkt", "pkts", "numbers", "nos", "no"]
+            has_sub_kg_factor = (0.0 < conv_factor < 1.0)
+            is_sachet = (uom.lower() in ["pkt", "packet", "sachet", "pkts"] or "ketchup" in cleaned_dish_name.lower() or "kitchup" in cleaned_dish_name.lower())
+
+            if is_sachet and (conv_factor >= 1.0 or conv_factor == 0.0):
+                conv_factor = 0.015
+                has_sub_kg_factor = True
+
+            if (is_pieces or has_sub_kg_factor) and conv_factor > 0.0 and conv_factor != 1.0:
+                act_prod_kg = round(act_prod * conv_factor, 2)
+                est_prod_kg = round(est_prod * conv_factor, 2)
+                over_prod_kg = round(over_prod * conv_factor, 2)
+                pickup_kg = round(pickup * conv_factor, 2)
+                kitchen_left_kg = round(kitchen_left * conv_factor, 2)
+                buffet_ret_kg = round(buffet_ret * conv_factor, 2)
+                total_left_kg = round(total_left * conv_factor, 2)
+                reuse_kg = round(reuse * conv_factor, 2)
+                cons_kg = round(consumption * conv_factor, 2)
+                waste_kg = round(waste_kg_explicit, 2) if waste_kg_explicit > 0 else round(waste * conv_factor, 2)
+            else:
+                waste_kg = round(waste_kg_explicit, 2) if waste_kg_explicit > 0 else round(waste, 2)
+                act_prod_kg = round(act_prod, 2)
+                est_prod_kg = round(est_prod, 2)
+                over_prod_kg = round(over_prod, 2)
+                pickup_kg = round(pickup, 2)
+                kitchen_left_kg = round(kitchen_left, 2)
+                buffet_ret_kg = round(buffet_ret, 2)
+                total_left_kg = round(total_left, 2)
+                reuse_kg = round(reuse, 2)
+                cons_kg = round(consumption, 2)
 
         # If waste was not explicitly provided, derive from total leftover - reuse
         if waste_kg == 0.0 and total_left_kg > 0.0 and reuse_kg >= 0.0:
@@ -1011,8 +1157,11 @@ def parse_sheet_records(
             mult = 1.4 if any(k in cleaned_dish_name.lower() for k in ["paneer", "sweet", "tikka", "kebab", "mutton", "fish", "prawn"]) else (0.8 if any(k in cleaned_dish_name.lower() for k in ["rice", "dal", "sambar", "tea"]) else 1.0)
             cost = round(avg_benchmark * mult, 2)
 
-        if waste_cost == 0.0 and waste_kg > 0.0 and cost > 0.0:
-            waste_cost = round(waste_kg * cost, 2)
+        if waste_cost == 0.0 and waste_kg > 0.0:
+            if (0.0 < conv_factor < 1.0) and waste > 0.0 and cost > 0.0:
+                waste_cost = round(waste * cost, 2)
+            elif cost > 0.0:
+                waste_cost = round(waste_kg * cost, 2)
 
         if waste_pct == 0.0 and act_prod_kg > 0.0 and waste_kg > 0.0:
             waste_pct = round((waste_kg / act_prod_kg) * 100.0, 2)
@@ -1185,7 +1334,7 @@ def analyze_report_file(content: bytes, filename: str) -> Dict[str, Any]:
     all_warnings = []
 
     for sname, matrix in matrices.items():
-        struct = analyze_sheet_structure(sname, matrix)
+        struct = analyze_sheet_structure(sname, matrix, filename=filename)
         records, warnings = parse_sheet_records(struct, filename)
         all_warnings.extend(warnings)
         total_detected_records += len(records)
@@ -1245,7 +1394,8 @@ def parse_and_normalize_report(
     for sname, matrix in matrices.items():
         if sheet_name_filter and sheet_name_filter != "all" and sname != sheet_name_filter:
             continue
-        struct = analyze_sheet_structure(sname, matrix)
+        struct = analyze_sheet_structure(sname, matrix, filename=filename)
+        struct.is_single_sheet_target = bool(sheet_name_filter and sheet_name_filter != "all")
         records, warnings = parse_sheet_records(
             struct,
             filename,
