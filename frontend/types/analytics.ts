@@ -227,7 +227,10 @@ export interface DishIntelligenceRow {
   rank?: number;
   dish_name: string;
   category: string;
+  food_type?: string;
   occurrences: number;
+  events_count?: number;
+  dish_pax?: number;
   total_prepared_kg: number;
   total_consumed_kg: number;
   total_leftover_kg: number;
@@ -235,13 +238,22 @@ export interface DishIntelligenceRow {
   total_waste_kg: number;
   waste_percentage: number;
   waste_per_guest_g: number;
+  consumed_per_guest_g?: number;
+  avg_prepared_per_event?: number;
+  avg_consumed_per_event?: number;
+  avg_waste_per_event?: number;
   total_waste_cost: number;
+  waste_cost?: number; // alias for compatibility
   production_variance_kg: number;
   production_variance_pct: number;
   consumption_rate_pct: number;
   is_over_produced: boolean;
   is_under_produced: boolean;
   is_consistent: boolean;
+  most_affected_event_type?: string;
+  operational_action?: string;
+  recommendation?: string;
+  confidence_level?: string;
 }
 
 export interface DishDrillDownDetail {
@@ -390,6 +402,8 @@ export interface AnalyticsOverviewResponse {
   service_type_comparison: ServiceTypeComparisonRow[];
   event_performance: EventPerformanceRow[];
   top_wasted_dishes: DishIntelligenceRow[];
+  dish_leaderboard?: DishIntelligenceRow[];
+  consumption_vs_waste?: DishIntelligenceRow[];
   consistent_dishes: DishIntelligenceRow[];
   over_production_alerts: DishIntelligenceRow[];
   under_production_alerts: DishIntelligenceRow[];
@@ -608,6 +622,8 @@ export interface CrossEventProfile {
   waste_rate_pct: number;
   intake_per_guest_g: number;
   guest_count: number;
+  has_data?: boolean;
+  records_count?: number;
   behavior_summary: string;
   eaten_more: CrossEventDishItem[];
   eaten_less: CrossEventDishItem[];
@@ -886,3 +902,17 @@ export interface UploadConfirmResponse {
   warnings?: string[];
   summary?: UploadConfirmSummary;
 }
+
+export type AnalyticsSubtabId =
+  | "overview"
+  | "hotels"
+  | "events"
+  | "event_types"
+  | "food_dishes"
+  | "meals_service"
+  | "trends"
+  | "waste_reuse"
+  | "costs_savings"
+  | "reports"
+  | "data_quality";
+

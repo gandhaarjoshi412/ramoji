@@ -464,6 +464,8 @@ export default function AnalyticsPage() {
                 consistent={data.consistent_dishes}
                 overProduction={data.over_production_alerts}
                 underProduction={data.under_production_alerts}
+                dishLeaderboard={data.dish_leaderboard}
+                consumptionVsWaste={data.consumption_vs_waste}
                 onSelectDish={handleSelectDish}
               />
 

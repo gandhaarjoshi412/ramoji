@@ -625,7 +625,7 @@ export const HotelsSubtab: React.FC<HotelsSubtabProps> = ({
                           {formatKg(d.total_waste_kg)} ({d.waste_percentage.toFixed(1)}%)
                         </span>
                         <span className="text-[10px] text-slate-500 font-mono">
-                          Loss: {formatINR(d.waste_cost)}
+                          Loss: {formatINR(d.waste_cost ?? d.total_waste_cost ?? 0)}
                         </span>
                       </div>
                     </div>

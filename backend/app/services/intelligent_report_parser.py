@@ -415,40 +415,92 @@ def parse_quantity_and_unit(val: Any, default_uom: str = "Kg") -> Tuple[float, s
     num = clean_number(val)
     return num, default_uom
 
+def derive_weekday(d: Optional[date]) -> Optional[str]:
+    """
+    Derives the full English weekday name deterministically from a valid calendar date.
+    E.g.:
+      2026-09-08 -> 'Tuesday'
+      2026-09-09 -> 'Wednesday'
+      2026-09-10 -> 'Thursday'
+      2026-10-08 -> 'Thursday'
+    Does not require any separate manually supplied weekday column.
+    """
+    if d is None:
+        return None
+    return d.strftime("%A")
+
 def parse_date_flexible(val: Any) -> Optional[date]:
+    """
+    Parses dates safely across Excel native serial numbers, Python date/datetime objects,
+    ISO formats, DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, 2-digit year representations (e.g. 08.10.26),
+    and textual month strings.
+    Ambiguous formats like 04/05/2026 default to DD/MM/YYYY (4th May 2026) following Indian
+    hospitality industry standards.
+    Missing dates return None; invalid dates return None (never guess randomly or shift timezones).
+    """
     if val is None or val == "":
         return None
     if isinstance(val, (date, datetime)):
         return val.date() if isinstance(val, datetime) else val
     if isinstance(val, (int, float)) and 30000 <= val <= 65000:
-        # Excel serial date: 1899-12-30 epoch
+        # Excel serial date: 1899-12-30 epoch (accounts for 1900 leap bug)
         try:
             return (datetime(1899, 12, 30) + timedelta(days=int(val))).date()
         except Exception:
             pass
-    s = str(val).strip()
+
+    s = str(val).strip().strip(".,'\" ")
+    if not s:
+        return None
+
+    # Common exact formats
     date_formats = [
         "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y",
-        "%m/%d/%Y", "%d-%b-%Y", "%d %b %Y", "%d-%B-%Y", "%B %d, %Y",
+        "%d.%m.%y", "%d/%m/%y", "%d-%m-%y",
+        "%Y/%m/%d", "%Y.%m.%d",
+        "%d-%b-%Y", "%d %b %Y", "%d-%B-%Y", "%B %d, %Y", "%d %B %Y",
+        "%d-%b-%y", "%d %b %y",
+        "%m/%d/%Y",
     ]
     for fmt in date_formats:
         try:
-            return datetime.strptime(s, fmt).date()
+            dt = datetime.strptime(s, fmt).date()
+            if 1990 <= dt.year <= 2050:
+                return dt
         except ValueError:
             pass
-    # Regex fallback for embedded dates
-    m = re.search(r'(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})', s)
-    if m:
+
+    # Regex search: 4-digit year at start (YYYY-MM-DD or YYYY.MM.DD or YYYY/MM/DD)
+    m_y4 = re.search(r'\b(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})\b', s)
+    if m_y4:
         try:
-            return date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+            y, m, d = int(m_y4.group(1)), int(m_y4.group(2)), int(m_y4.group(3))
+            if 1990 <= y <= 2050:
+                return date(y, m, d)
         except ValueError:
             pass
-    m2 = re.search(r'(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})', s)
-    if m2:
+
+    # Regex search: 4-digit year at end (DD/MM/YYYY or DD.MM.YYYY or DD-MM-YYYY)
+    m_d4 = re.search(r'\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\b', s)
+    if m_d4:
         try:
-            return date(int(m2.group(1)), int(m2.group(2)), int(m2.group(3)))
+            d, m, y = int(m_d4.group(1)), int(m_d4.group(2)), int(m_d4.group(3))
+            if 1990 <= y <= 2050:
+                return date(y, m, d)
         except ValueError:
             pass
+
+    # Regex search: 2-digit year at end (DD.MM.YY or DD/MM/YY or DD-MM-YY)
+    m_d2 = re.search(r'\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{2})\b', s)
+    if m_d2:
+        try:
+            d, m, y_part = int(m_d2.group(1)), int(m_d2.group(2)), int(m_d2.group(3))
+            y = 2000 + y_part if y_part < 100 else y_part
+            if 1990 <= y <= 2050:
+                return date(y, m, d)
+        except ValueError:
+            pass
+
     return None
 
 # =========================================================================
@@ -502,7 +554,7 @@ def extract_metadata_from_text(text: str, sheet_name: str = "", filename: str = 
                     meta["date_str"] = f"{y_part:04d}-{g[1].zfill(2)}-{g[0].zfill(2)}"
                 break
         if not meta["date_str"]:
-            parsed_d = parse_date_flexible(text)
+            parsed_d = parse_date_flexible(text) or parse_date_flexible(filename)
             if parsed_d:
                 meta["date_str"] = str(parsed_d)
 

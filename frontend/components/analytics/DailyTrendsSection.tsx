@@ -99,14 +99,23 @@ export const DailyTrendsSection: React.FC<DailyTrendsSectionProps> = ({
       }> = {};
 
       trends.forEach((t) => {
-        // True calendar week calculation based on Monday
-        const d = new Date(t.date + "T00:00:00");
+        // True calendar week calculation based on Monday (timezone-safe local arithmetic)
         let mondayStr = t.date;
-        if (!isNaN(d.getTime())) {
-          const day = d.getDay();
-          const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-          const mon = new Date(new Date(t.date + "T00:00:00").setDate(diff));
-          mondayStr = mon.toISOString().slice(0, 10);
+        const parts = t.date.split("-");
+        if (parts.length === 3) {
+          const yNum = parseInt(parts[0], 10);
+          const mNum = parseInt(parts[1], 10) - 1;
+          const dNum = parseInt(parts[2], 10);
+          const localDate = new Date(yNum, mNum, dNum);
+          if (!isNaN(localDate.getTime())) {
+            const dayOfWeek = localDate.getDay(); // 0 = Sun, 1 = Mon ...
+            const dayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+            localDate.setDate(localDate.getDate() + dayOffset);
+            const y = localDate.getFullYear();
+            const m = String(localDate.getMonth() + 1).padStart(2, "0");
+            const dStr = String(localDate.getDate()).padStart(2, "0");
+            mondayStr = `${y}-${m}-${dStr}`;
+          }
         }
 
         const mParts = mondayStr.split("-");

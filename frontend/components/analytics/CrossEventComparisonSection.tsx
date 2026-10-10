@@ -124,86 +124,73 @@ export const CrossEventComparisonSection: React.FC<CrossEventComparisonSectionPr
         <div className="space-y-6 pt-1">
           {/* Executive Quick Contrast Metric Cards: Corporate vs. Wedding vs. Social */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {/* Corporate Summary Card */}
-            <div className="p-4 rounded-xl border border-blue-200/80 bg-blue-50/30 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-900">
-                  <Briefcase className="w-3.5 h-3.5 text-blue-600" />
-                  Corporate Meetings
-                </span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
-                  Light Appetite
-                </span>
-              </div>
-              <div className="space-y-1">
-                <div className="text-2xl font-serif font-bold text-slate-900">
-                  43.0%{" "}
-                  <span className="text-xs font-sans font-normal text-slate-500">
-                    consumed
-                  </span>
-                </div>
-                <div className="text-[11px] font-semibold text-rose-700">
-                  57.0% Discarded Waste Rate
-                </div>
-              </div>
-              <div className="text-xs text-slate-600 leading-relaxed pt-1 border-t border-blue-100">
-                <strong>Intake:</strong> 46g / guest. Attendees eat light morning breakfast items & dosas, but discard 83% of heavy rice.
-              </div>
-            </div>
+            {profiles.slice(0, 3).map((p) => {
+              const hasData = p.has_data !== false && (p.records_count ?? 1) > 0 && p.guest_count > 0;
+              const typeLower = p.event_type.toLowerCase();
+              const borderColor =
+                typeLower === "corporate"
+                  ? "border-blue-200/80 bg-blue-50/30"
+                  : typeLower === "wedding"
+                  ? "border-rose-200/80 bg-rose-50/30"
+                  : "border-amber-200/80 bg-amber-50/30";
+              const titleColor =
+                typeLower === "corporate"
+                  ? "text-blue-900"
+                  : typeLower === "wedding"
+                  ? "text-rose-900"
+                  : "text-amber-900";
+              const badgeColor =
+                typeLower === "corporate"
+                  ? "bg-blue-100 text-blue-800"
+                  : typeLower === "wedding"
+                  ? "bg-rose-100 text-rose-800"
+                  : "bg-amber-100 text-amber-800";
 
-            {/* Wedding Summary Card */}
-            <div className="p-4 rounded-xl border border-rose-200/80 bg-rose-50/30 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-900">
-                  <Heart className="w-3.5 h-3.5 text-rose-600" />
-                  Wedding Banquets
-                </span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800">
-                  Feast Mode (10.6x Intake)
-                </span>
-              </div>
-              <div className="space-y-1">
-                <div className="text-2xl font-serif font-bold text-slate-900">
-                  87.5%{" "}
-                  <span className="text-xs font-sans font-normal text-slate-500">
-                    consumed
-                  </span>
-                </div>
-                <div className="text-[11px] font-semibold text-emerald-700">
-                  Only 12.5% Discarded Waste Rate
-                </div>
-              </div>
-              <div className="text-xs text-slate-600 leading-relaxed pt-1 border-t border-rose-100">
-                <strong>Intake:</strong> 488g / guest. Hearty appetite for Biryani (88%) & sweets (94%). Waste is confined to cold buffet breads (30%).
-              </div>
-            </div>
+              return (
+                <div key={p.event_type} className={`p-4 rounded-xl border ${borderColor} space-y-3`}>
+                  <div className="flex items-center justify-between">
+                    <span className={`inline-flex items-center gap-1.5 text-xs font-bold ${titleColor}`}>
+                      {getProfileIcon(p.event_type)}
+                      {p.title}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${hasData ? badgeColor : "bg-slate-200 text-slate-700"}`}>
+                      {hasData ? p.tagline : "Baseline Not Set"}
+                    </span>
+                  </div>
 
-            {/* Social Summary Card */}
-            <div className="p-4 rounded-xl border border-amber-200/80 bg-amber-50/30 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-900">
-                  <PartyPopper className="w-3.5 h-3.5 text-amber-600" />
-                  Social & Celebrations
-                </span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
-                  Live Station Dominance
-                </span>
-              </div>
-              <div className="space-y-1">
-                <div className="text-2xl font-serif font-bold text-slate-900">
-                  89.9%{" "}
-                  <span className="text-xs font-sans font-normal text-slate-500">
-                    consumed
-                  </span>
+                  {hasData ? (
+                    <>
+                      <div className="space-y-1">
+                        <div className="text-2xl font-serif font-bold text-slate-900">
+                          {p.consumption_rate_pct.toFixed(1)}%{" "}
+                          <span className="text-xs font-sans font-normal text-slate-500">
+                            consumed
+                          </span>
+                        </div>
+                        <div className={`text-[11px] font-semibold ${p.waste_rate_pct > 20 ? "text-rose-700" : "text-emerald-700"}`}>
+                          {p.waste_rate_pct.toFixed(1)}% Discarded Waste Rate
+                        </div>
+                      </div>
+                      <div className="text-xs text-slate-600 leading-relaxed pt-1 border-t border-slate-200/60">
+                        <strong>Intake:</strong> {p.intake_per_guest_g.toFixed(0)}g / guest. {p.behavior_summary}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="py-2 space-y-2">
+                      <div className="text-xs font-semibold text-slate-500">
+                        Insufficient Banquet Records Logged
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        {p.behavior_summary || "Operational baseline requires at least 3 comparable events to establish consumption metrics."}
+                      </p>
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        Events: {p.records_count ?? 0} • Logged Guests: {p.guest_count}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="text-[11px] font-semibold text-emerald-700">
-                  10.1% Discarded Waste Rate
-                </div>
-              </div>
-              <div className="text-xs text-slate-600 leading-relaxed pt-1 border-t border-amber-100">
-                <strong>Intake:</strong> High live counter clearance (100% pasta & fresh jalebi). Cold fried starters & salads see low pickup.
-              </div>
-            </div>
+              );
+            })}
           </div>
 
           {/* Event Type Interactive Selector Bar */}

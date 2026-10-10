@@ -528,12 +528,16 @@ def get_analytics_overview(
 
     # Dish Intelligence
     dish_map: Dict[str, Dict[str, Any]] = {}
+    dish_shifts: Dict[str, Dict[tuple, int]] = {}
+    dish_event_types: Dict[str, Dict[str, float]] = {}
+
     for r in records:
         dn = r.dish_name
         if dn not in dish_map:
             dish_map[dn] = {
                 "dish_name": dn,
-                "category": r.dish_category,
+                "category": r.dish_category or "Main Course",
+                "food_type": getattr(r, "food_type", None) or ("Non-Veg" if any(k in dn.lower() for k in ["chicken", "mutton", "fish", "prawn", "egg", "meat"]) else "Veg"),
                 "occurrences": 0,
                 "total_prepared_kg": 0.0,
                 "total_consumed_kg": 0.0,
@@ -543,48 +547,108 @@ def get_analytics_overview(
                 "total_waste_cost": 0.0,
                 "estimated_kg": 0.0,
             }
+            dish_shifts[dn] = {}
+            dish_event_types[dn] = {}
+
         dish_map[dn]["occurrences"] += 1
-        dish_map[dn]["total_prepared_kg"] += r.actual_production_kg
-        dish_map[dn]["total_consumed_kg"] += r.actual_consumption_kg
-        dish_map[dn]["total_leftover_kg"] += r.total_leftover_kg
-        dish_map[dn]["total_reuse_kg"] += r.reuse_quantity_kg
-        dish_map[dn]["total_waste_kg"] += r.total_waste_kg
-        dish_map[dn]["total_waste_cost"] += r.waste_cost
+        dish_map[dn]["total_prepared_kg"] += float(r.actual_production_kg or 0.0)
+        dish_map[dn]["total_consumed_kg"] += float(r.actual_consumption_kg or 0.0)
+        dish_map[dn]["total_leftover_kg"] += float(r.total_leftover_kg or 0.0)
+        dish_map[dn]["total_reuse_kg"] += float(r.reuse_quantity_kg or 0.0)
+        dish_map[dn]["total_waste_kg"] += float(r.total_waste_kg or 0.0)
+        dish_map[dn]["total_waste_cost"] += float(r.waste_cost or 0.0)
         dish_map[dn]["estimated_kg"] += float(r.estimated_production_kg or r.actual_production_kg or 0.0)
+
+        # Track shifts and pax specifically where this dish appeared
+        s_k = (str(r.record_date), r.hotel_name, r.session, r.event_name)
+        if s_k not in dish_shifts[dn]:
+            dish_shifts[dn][s_k] = max(0, int(r.pax or 0))
+
+        ev_t = r.event_type or "General"
+        dish_event_types[dn][ev_t] = dish_event_types[dn].get(ev_t, 0.0) + float(r.total_waste_kg or 0.0)
 
     dish_list = []
     for dn, d in dish_map.items():
         prep = d["total_prepared_kg"]
+        cons = d["total_consumed_kg"]
+        leftover = d["total_leftover_kg"]
+        reuse = d["total_reuse_kg"]
         w = d["total_waste_kg"]
         est = d["estimated_kg"]
-        w_pct = (w / prep * 100) if prep > 0 else 0
-        cons_rate = (d["total_consumed_kg"] / prep * 100) if prep > 0 else 0
-        var_kg = prep - est
-        var_pct = (var_kg / est * 100) if est > 0 else 0
+        events_cnt = max(1, len(dish_shifts[dn]))
+        dish_pax = sum(dish_shifts[dn].values())
+
+        w_pct = round((w / prep * 100.0) if prep > 0 else 0.0, 2)
+        cons_rate = round((cons / prep * 100.0) if prep > 0 else 0.0, 2)
+        var_kg = round(prep - est, 2)
+        var_pct = round((var_kg / est * 100.0) if est > 0 else 0.0, 1)
+
+        # Grounded per-guest metrics using attendees served for this specific dish
+        w_per_guest_g = round((w / dish_pax * 1000.0) if dish_pax > 0 else 0.0, 1)
+        cons_per_guest_g = round((cons / dish_pax * 1000.0) if dish_pax > 0 else 0.0, 1)
+
+        avg_prep_event = round(prep / events_cnt, 2)
+        avg_cons_event = round(cons / events_cnt, 2)
+        avg_waste_event = round(w / events_cnt, 2)
+
+        most_affected_ev = max(dish_event_types[dn].items(), key=lambda x: x[1])[0] if dish_event_types[dn] else "Standard"
+
+        # Actionable recommendations distinguishing volume loss vs percentage waste vs demand
+        if w_pct >= 35.0:
+            op_action = f"High waste rate ({w_pct}%). Reduce initial batch by 30-40%; replenish on demand."
+            recommendation = f"Overproduction driver: cut initial batch for {dn}. Stage replenishment in smaller pans."
+        elif w >= 15.0:
+            op_action = f"High waste volume ({w:.1f} kg). Re-evaluate portion sizes and buffet container depths."
+            recommendation = f"Volume loss priority: save up to ₹{d['total_waste_cost']*0.5:,.0f} by batching {dn} in 2-3 stages."
+        elif cons_rate >= 90.0 and w_pct <= 5.0:
+            op_action = f"High demand crowd favorite ({cons_rate}% consumed). Maintain recipe scaling."
+            recommendation = f"Excellent consumption: keep current batch standard. Monitor live stations."
+        elif cons_rate > 98.0 and w <= 0.2:
+            op_action = "Near complete clearance. Monitor for potential guest stockouts."
+            recommendation = f"Stockout risk check: consider increasing batch buffer by 5-10% if guests requested refills."
+        else:
+            op_action = "Balanced performance. Maintain current culinary portioning."
+            recommendation = f"Standard batch pacing for {dn}."
+
+        confidence = "Verified (N >= 3 events)" if events_cnt >= 3 else f"Preliminary ({events_cnt} event{'s' if events_cnt > 1 else ''})"
 
         dish_list.append({
             "dish_name": dn,
             "category": d["category"],
+            "food_type": d["food_type"],
             "occurrences": d["occurrences"],
+            "events_count": events_cnt,
+            "dish_pax": dish_pax,
             "total_prepared_kg": round(prep, 2),
-            "total_consumed_kg": round(d["total_consumed_kg"], 2),
-            "total_leftover_kg": round(d["total_leftover_kg"], 2),
-            "total_reuse_kg": round(d["total_reuse_kg"], 2),
+            "total_consumed_kg": round(cons, 2),
+            "total_leftover_kg": round(leftover, 2),
+            "total_reuse_kg": round(reuse, 2),
             "total_waste_kg": round(w, 2),
-            "waste_percentage": round(w_pct, 2),
-            "waste_per_guest_g": round((w / total_pax * 1000) if total_pax > 0 else 0, 1),
+            "waste_percentage": w_pct,
+            "consumption_rate_pct": cons_rate,
+            "waste_per_guest_g": w_per_guest_g,
+            "consumed_per_guest_g": cons_per_guest_g,
+            "avg_prepared_per_event": avg_prep_event,
+            "avg_consumed_per_event": avg_cons_event,
+            "avg_waste_per_event": avg_waste_event,
             "total_waste_cost": round(d["total_waste_cost"], 2),
-            "production_variance_kg": round(var_kg, 2),
-            "production_variance_pct": round(var_pct, 1),
-            "consumption_rate_pct": round(cons_rate, 1),
-            "is_over_produced": var_pct > 3.0,
+            "waste_cost": round(d["total_waste_cost"], 2),
+            "production_variance_kg": var_kg,
+            "production_variance_pct": var_pct,
+            "most_affected_event_type": most_affected_ev,
+            "operational_action": op_action,
+            "recommendation": recommendation,
+            "confidence_level": confidence,
+            "is_over_produced": var_pct > 3.0 or w_pct >= 25.0,
             "is_under_produced": cons_rate > 98.0,
-            "is_consistent": w_pct <= 2.5 and prep > 5.0,
+            "is_consistent": w_pct <= 3.0 and prep > 5.0,
         })
 
-    top_wasted_dishes = sorted(dish_list, key=lambda x: x["total_waste_kg"], reverse=True)[:15]
+    dish_leaderboard = sorted(dish_list, key=lambda x: (x["total_consumed_kg"], x["consumption_rate_pct"]), reverse=True)
+    top_wasted_dishes = sorted(dish_list, key=lambda x: (x["total_waste_kg"], x["waste_percentage"]), reverse=True)[:15]
+    consumption_vs_waste = sorted(dish_list, key=lambda x: x["total_prepared_kg"], reverse=True)
     consistent_dishes = sorted([d for d in dish_list if d["is_consistent"] or d["waste_percentage"] < 3.0], key=lambda x: x["waste_percentage"])[:12]
-    over_production_alerts = sorted([d for d in dish_list if d["is_over_produced"]], key=lambda x: x["production_variance_kg"], reverse=True)[:10]
+    over_production_alerts = sorted([d for d in dish_list if d["is_over_produced"]], key=lambda x: x["total_waste_kg"], reverse=True)[:10]
     under_production_alerts = sorted([d for d in dish_list if d["is_under_produced"]], key=lambda x: x["consumption_rate_pct"], reverse=True)[:10]
 
     # Pareto Analysis
@@ -897,6 +961,8 @@ def get_analytics_overview(
         "service_type_comparison": service_type_comparison,
         "event_performance": event_performance,
         "top_wasted_dishes": top_wasted_dishes,
+        "dish_leaderboard": dish_leaderboard,
+        "consumption_vs_waste": consumption_vs_waste,
         "consistent_dishes": consistent_dishes,
         "over_production_alerts": over_production_alerts,
         "under_production_alerts": under_production_alerts,
@@ -1671,169 +1737,139 @@ def get_event_type_analytics(
     soc_cat = cat_by_name.get("Social")
     conf_cat = cat_by_name.get("Conference")
 
-    profiles = []
+    def generate_category_profile(cat_info: Optional[Dict[str, Any]], event_type_key: str, default_title: str, default_tagline: str) -> Dict[str, Any]:
+        has_records = cat_info is not None and cat_info.get("total_records", 0) > 0 and cat_info.get("total_prepared_kg", 0.0) > 0.0
+        pax = cat_info["total_pax"] if cat_info else 0
+        intake_g = round((cat_info["total_consumed_kg"] / max(1, pax)) * 1000.0, 1) if has_records and pax > 0 else 0.0
+        cons_pct = cat_info["consumption_rate_pct"] if has_records else 0.0
+        waste_pct = cat_info["waste_rate_pct"] if has_records else 0.0
+        waste_g = cat_info["waste_per_guest_g"] if has_records else 0.0
+        waste_kg = cat_info["total_waste_kg"] if has_records else 0.0
+        waste_cost = cat_info["total_waste_cost"] if has_records else 0.0
+        ev_count = cat_info["event_count"] if cat_info else 0
 
-    # Corporate Profile
-    if corp_cat:
-        corp_pax = max(1, corp_cat["total_pax"])
-        corp_intake = round((corp_cat["total_consumed_kg"] / corp_pax) * 1000.0, 1)
-        corp_most = corp_cat.get("dish_consumption_analysis", {}).get("most_consumed", [])
-        corp_least = corp_cat.get("dish_consumption_analysis", {}).get("least_consumed", [])
-        profiles.append({
-            "event_type": "Corporate",
-            "title": "Corporate Meetings & Business Luncheons",
-            "tagline": "Selective / Light Bites & High Starch Abandonment",
-            "consumption_rate_pct": corp_cat["consumption_rate_pct"],
-            "waste_rate_pct": corp_cat["waste_rate_pct"],
-            "intake_per_guest_g": corp_intake,
-            "guest_count": corp_cat["total_pax"],
-            "behavior_summary": "Corporate professionals eat significantly less food overall during business sessions (46g/guest, 43% consumed). Heavy carbs and rich curries experience severe abandonment, whereas light breakfast items, live dosa stations, and finger snacks have high pickup.",
-            "eaten_more": [
+        most_dishes = cat_info.get("dish_consumption_analysis", {}).get("most_consumed", []) if has_records else []
+        least_dishes = cat_info.get("dish_consumption_analysis", {}).get("least_consumed", []) if has_records else []
+
+        if not has_records or ev_count == 0:
+            behavior_summary = f"No banquet records currently available for {default_title} under active filters. Empirical baseline requires at least 3 comparable events."
+            kitchen_guidance = f"Log food production, pickup, and waste scans for {default_title} to establish empirical baseline metrics."
+            eaten_more = []
+            eaten_less = []
+        else:
+            top_c = [d["dish_name"] for d in most_dishes[:3]]
+            top_w = [d["dish_name"] for d in least_dishes[:3]]
+            c_desc = f" Strongest guest pickup observed in {', '.join(top_c)}." if top_c else ""
+            w_desc = f" Discards concentrated in {', '.join(top_w)}." if top_w else ""
+            behavior_summary = (
+                f"Across {ev_count} recorded {default_title} event(s) ({pax:,} attendees), patrons consumed an average of {intake_g:.0f}g per guest "
+                f"with a {cons_pct:.1f}% consumption rate and {waste_pct:.1f}% waste rate ({waste_g:.0f}g waste/guest). Total food waste was {waste_kg:.1f} kg "
+                f"(loss of ₹{waste_cost:,.0f}).{c_desc}{w_desc}"
+            )
+            if top_w and waste_pct >= 15.0:
+                reduction_target = min(45, max(15, int(waste_pct * 0.75)))
+                kitchen_guidance = f"Scale down initial batch preparation of {', '.join(top_w[:2])} by {reduction_target}%. Transition from bulk buffet holding to on-demand replenishment pacing."
+            elif cons_pct >= 85.0:
+                kitchen_guidance = f"High guest appetite ({cons_pct:.1f}% consumed). Maintain standard recipe scaling for crowd favorites ({', '.join(top_c[:2]) if top_c else 'menu items'})."
+            else:
+                kitchen_guidance = f"Maintain portion scaling for {default_title}. Stage batch cooking in 30-minute intervals to avoid holding spoilage."
+
+            eaten_more = [
                 {
                     "dish_name": d["dish_name"],
                     "consumption_rate_pct": d["consumption_rate_pct"],
                     "consumed_kg": d["consumed_kg"],
-                    "reason": "Light, quick, clean to consume while seated in formal business attire."
-                } for d in corp_most[:4]
-            ],
-            "eaten_less": [
+                    "reason": f"High pickup crowd favorite ({d['consumption_rate_pct']:.0f}% consumed across {d.get('service_count', 1)} service(s))."
+                } for d in most_dishes[:4]
+            ]
+            eaten_less = [
                 {
                     "dish_name": d["dish_name"],
                     "consumption_rate_pct": d["consumption_rate_pct"],
                     "waste_rate_pct": d["waste_rate_pct"],
                     "waste_kg": d["waste_kg"],
-                    "reason": f"{d['waste_rate_pct']}% discarded ({d['waste_kg']} kg). Corporate guests avoid heavy carbs during workday sessions."
-                } for d in corp_least[:4]
-            ],
-            "kitchen_guidance": "Cut bulk steamed rice and rich heavy gravies by 40-50% for corporate contracts. Reallocate budget to live counters (dosa/idli), fresh fruits, and individual finger snacks."
-        })
+                    "reason": f"{d['waste_rate_pct']:.0f}% discard rate ({d['waste_kg']:.1f} kg lost). Over-prepared relative to guest pickup."
+                } for d in least_dishes[:4]
+            ]
 
-    # Wedding Profile
-    if wed_cat:
-        wed_pax = max(1, wed_cat["total_pax"])
-        wed_intake = round((wed_cat["total_consumed_kg"] / wed_pax) * 1000.0, 1)
-        wed_most = wed_cat.get("dish_consumption_analysis", {}).get("most_consumed", [])
-        wed_least = wed_cat.get("dish_consumption_analysis", {}).get("least_consumed", [])
-        profiles.append({
-            "event_type": "Wedding",
-            "title": "Weddings & Marriage Banquets",
-            "tagline": "Feast Mode / Hearty Appetite & Sweet Tooth",
-            "consumption_rate_pct": wed_cat["consumption_rate_pct"],
-            "waste_rate_pct": wed_cat["waste_rate_pct"],
-            "intake_per_guest_g": wed_intake,
-            "guest_count": wed_cat["total_pax"],
-            "behavior_summary": "Wedding guests attend specifically expecting celebratory feasting. They consume over 10x more food per guest than corporate attendees (488g/guest, 87.5% consumed), enthusiastically finishing rich curries, biryanis, and sweets. Wastage is concentrated in breads that get cold on buffets.",
-            "eaten_more": [
-                {
-                    "dish_name": d["dish_name"],
-                    "consumption_rate_pct": d["consumption_rate_pct"],
-                    "consumed_kg": d["consumed_kg"],
-                    "reason": "Centerpiece festive crowd favorites; guests show exceptionally strong appetite for celebratory sweets and aromatic rice."
-                } for d in wed_most[:4]
-            ],
-            "eaten_less": [
-                {
-                    "dish_name": d["dish_name"],
-                    "consumption_rate_pct": d["consumption_rate_pct"],
-                    "waste_rate_pct": d["waste_rate_pct"],
-                    "waste_kg": d["waste_kg"],
-                    "reason": f"Breads and dry items cool down quickly in chafing pans and become stiff ({d['waste_rate_pct']}% waste)."
-                } for d in wed_least[:3]
-            ],
-            "kitchen_guidance": "Prepare generous portions of Biryani and rich gravies. Do NOT pre-batch breads in bulk—bake naans and rotis on demand at live tandoor stations to eliminate bread waste."
-        })
-
-    # Social Profile
-    if soc_cat:
-        soc_pax = max(1, soc_cat["total_pax"])
-        soc_intake = round((soc_cat["total_consumed_kg"] / soc_pax) * 1000.0, 1)
-        soc_most = soc_cat.get("dish_consumption_analysis", {}).get("most_consumed", [])
-        soc_least = soc_cat.get("dish_consumption_analysis", {}).get("least_consumed", [])
-        profiles.append({
-            "event_type": "Social",
-            "title": "Social Parties, Birthdays & Celebrations",
-            "tagline": "Experiential Dining / Live Counters Dominate",
-            "consumption_rate_pct": soc_cat["consumption_rate_pct"],
-            "waste_rate_pct": soc_cat["waste_rate_pct"],
-            "intake_per_guest_g": soc_intake,
-            "guest_count": soc_cat["total_pax"],
-            "behavior_summary": "Social celebrations center on experiential dining. Interactive live cooking stations (pasta, hot jalebi with rabdi, chaat) see 100% pickup, while static vegetable curries and cold buffet salads see low pickup.",
-            "eaten_more": [
-                {
-                    "dish_name": d["dish_name"],
-                    "consumption_rate_pct": d["consumption_rate_pct"],
-                    "consumed_kg": d["consumed_kg"],
-                    "reason": "Interactive live action cooking stations and specialty desserts see near 100% plate clearance."
-                } for d in soc_most[:4]
-            ],
-            "eaten_less": [
-                {
-                    "dish_name": d["dish_name"],
-                    "consumption_rate_pct": d["consumption_rate_pct"],
-                    "waste_rate_pct": d["waste_rate_pct"],
-                    "waste_kg": d["waste_kg"],
-                    "reason": "Fried dry starters go cold quickly and lose crispiness; static salad bowls are frequently passed over."
-                } for d in soc_least[:4]
-            ],
-            "kitchen_guidance": "Prioritize live action cooking stations over deep buffet pans. Reduce static cold salads and dry fried appetizers."
-        })
-
-    # Conference Profile
-    profiles.append({
-        "event_type": "Conference",
-        "title": "Conferences, Conventions & Symposia",
-        "tagline": "Schedule Driven / Speed & Portability",
-        "consumption_rate_pct": conf_cat["consumption_rate_pct"] if conf_cat and conf_cat["consumption_rate_pct"] > 0 else 62.0,
-        "waste_rate_pct": conf_cat["waste_rate_pct"] if conf_cat and conf_cat["waste_rate_pct"] > 0 else 38.0,
-        "intake_per_guest_g": 180.0,
-        "guest_count": conf_cat["total_pax"] if conf_cat else 0,
-        "behavior_summary": "Conference delegates operate under tight 30-45 minute lunch agendas. Long buffet queues cause people to rush or skip heavy multi-course dishes, creating buffet pan leftovers.",
-        "eaten_more": [
-            {"dish_name": "Pre-portioned Rice Bowls", "consumption_rate_pct": 84.0, "consumed_kg": 0.0, "reason": "Fast self-service with minimal queue delay."},
-            {"dish_name": "Finger Wraps & Cutlets", "consumption_rate_pct": 88.0, "consumed_kg": 0.0, "reason": "Allows attendees to network while eating stand-up style."}
-        ],
-        "eaten_less": [
-            {"dish_name": "Multi-course Thali Dishes", "consumption_rate_pct": 45.0, "waste_rate_pct": 55.0, "waste_kg": 0.0, "reason": "Too slow to consume during rapid convention intermissions."}
-        ],
-        "kitchen_guidance": "Implement dual grab-and-go buffet lanes with pre-assembled portion boxes to avoid queue bottlenecks and speed up service."
-    })
-
-    head_to_head = [
-        {
-            "dish_category": "Rice & Biryani",
-            "corporate": {"pickup_pct": 16.7, "assessment": "Severe Overproduction (83.3% discarded)"},
-            "wedding": {"pickup_pct": 88.0, "assessment": "Massive Crowd Favorite (88% consumed)"},
-            "social": {"pickup_pct": 85.0, "assessment": "High Demand"},
-            "key_takeaway": "Wedding attendees consume 5.3x more rice/biryani per guest than Corporate attendees. Never prepare standard wedding rice portions for a business meeting."
-        },
-        {
-            "dish_category": "Rich Curries (e.g. Paneer Butter Masala)",
-            "corporate": {"pickup_pct": 17.5, "assessment": "Low Pickup (82.5% leftover)"},
-            "wedding": {"pickup_pct": 90.0, "assessment": "High Pickup (90% consumed)"},
-            "social": {"pickup_pct": 82.0, "assessment": "Consistent Demand"},
-            "key_takeaway": "Rich gravies thrive in festive weddings (90% eaten) but fail in corporate meetings (only 17.5% eaten). Corporate guests prefer light dals and gravies."
-        },
-        {
-            "dish_category": "Breads & Naans",
-            "corporate": {"pickup_pct": 70.0, "assessment": "Moderate Pickup"},
-            "wedding": {"pickup_pct": 70.0, "assessment": "High Bread Waste (30% discarded)"},
-            "social": {"pickup_pct": 100.0, "assessment": "100% Pickup at Live Stations"},
-            "key_takeaway": "Breads in wedding buffets go cold and stiff in chafing pans (30% waste). Live counter bread prep in social events achieved 100% consumption."
-        },
-        {
-            "dish_category": "Desserts & Sweets",
-            "corporate": {"pickup_pct": 59.8, "assessment": "Moderate Pickup (40% waste)"},
-            "wedding": {"pickup_pct": 94.0, "assessment": "Near Complete Clearance (94% eaten)"},
-            "social": {"pickup_pct": 100.0, "assessment": "100% Clearance at Live Counters"},
-            "key_takeaway": "Wedding and party crowds eat virtually every sweet available (94-100%), whereas corporate attendees are restrained (40% sweet waste)."
+        return {
+            "event_type": event_type_key,
+            "title": default_title,
+            "tagline": default_tagline,
+            "consumption_rate_pct": cons_pct,
+            "waste_rate_pct": waste_pct,
+            "intake_per_guest_g": intake_g,
+            "guest_count": pax,
+            "event_count": ev_count,
+            "has_data": has_records,
+            "behavior_summary": behavior_summary,
+            "eaten_more": eaten_more,
+            "eaten_less": eaten_less,
+            "kitchen_guidance": kitchen_guidance,
         }
+
+    profiles = [
+        generate_category_profile(corp_cat, "Corporate", "Corporate Meetings & Business Luncheons", "Selective / Light Bites & High Starch Abandonment"),
+        generate_category_profile(wed_cat, "Wedding", "Weddings & Marriage Banquets", "Feast Mode / Hearty Appetite & Celebratory Feasting"),
+        generate_category_profile(soc_cat, "Social", "Social Parties, Birthdays & Celebrations", "Experiential Dining / Live Counters Dominate"),
+        generate_category_profile(conf_cat, "Conference", "Conferences, Conventions & Symposia", "Schedule Driven / Speed & Portability"),
     ]
+
+    active_profiles = [p for p in profiles if p["has_data"] and p["guest_count"] > 0]
+    if len(active_profiles) >= 2:
+        p1, p2 = active_profiles[0], active_profiles[1]
+        core_finding = (
+            f"{p1['title']} guests averaged {p1['intake_per_guest_g']:.0f}g/guest ({p1['consumption_rate_pct']:.1f}% pickup, {p1['waste_rate_pct']:.1f}% waste), "
+            f"while {p2['title']} guests averaged {p2['intake_per_guest_g']:.0f}g/guest ({p2['consumption_rate_pct']:.1f}% pickup, {p2['waste_rate_pct']:.1f}% waste)."
+        )
+    elif len(active_profiles) == 1:
+        p1 = active_profiles[0]
+        core_finding = (
+            f"Active records present for {p1['title']}: {p1['intake_per_guest_g']:.0f}g consumed per guest ({p1['consumption_rate_pct']:.1f}% pickup, {p1['waste_rate_pct']:.1f}% waste rate across {p1['guest_count']:,} guests). "
+            f"Other categories require additional event logs to generate empirical cross-category baselines."
+        )
+    else:
+        core_finding = "No banquet records currently match the active filter criteria. Establish empirical baselines by recording at least 3 events per category."
+
+    # Dynamic Head-to-Head Comparisons based on observed dishes
+    head_to_head = []
+    for cat_label in ["Rice & Biryani", "Rich Curries", "Breads & Naans", "Desserts & Sweets"]:
+        kw = ["rice", "biryani"] if "Rice" in cat_label else (["curry", "paneer", "gravy", "masala"] if "Curries" in cat_label else (["naan", "roti", "bread"] if "Breads" in cat_label else ["sweet", "dessert", "jamun", "halwa", "ice cream"]))
+        corp_items = [d for d in corp_cat.get("dish_consumption_analysis", {}).get("all_dishes", []) if any(k in d["dish_name"].lower() for k in kw)] if corp_cat else []
+        wed_items = [d for d in wed_cat.get("dish_consumption_analysis", {}).get("all_dishes", []) if any(k in d["dish_name"].lower() for k in kw)] if wed_cat else []
+        soc_items = [d for d in soc_cat.get("dish_consumption_analysis", {}).get("all_dishes", []) if any(k in d["dish_name"].lower() for k in kw)] if soc_cat else []
+
+        corp_prep = sum(d["prepared_kg"] for d in corp_items)
+        wed_prep = sum(d["prepared_kg"] for d in wed_items)
+        soc_prep = sum(d["prepared_kg"] for d in soc_items)
+
+        corp_pickup = round(sum(d["consumed_kg"] for d in corp_items) / corp_prep * 100.0, 1) if corp_prep > 0 else (corp_cat["consumption_rate_pct"] if corp_cat and corp_cat["total_records"] > 0 else 0.0)
+        wed_pickup = round(sum(d["consumed_kg"] for d in wed_items) / wed_prep * 100.0, 1) if wed_prep > 0 else (wed_cat["consumption_rate_pct"] if wed_cat and wed_cat["total_records"] > 0 else 0.0)
+        soc_pickup = round(sum(d["consumed_kg"] for d in soc_items) / soc_prep * 100.0, 1) if soc_prep > 0 else (soc_cat["consumption_rate_pct"] if soc_cat and soc_cat["total_records"] > 0 else 0.0)
+
+        corp_assess = f"{corp_pickup:.1f}% consumed ({100-corp_pickup:.1f}% waste)" if corp_cat and corp_cat["total_records"] > 0 else "No Event Data"
+        wed_assess = f"{wed_pickup:.1f}% consumed ({100-wed_pickup:.1f}% waste)" if wed_cat and wed_cat["total_records"] > 0 else "No Event Data"
+        soc_assess = f"{soc_pickup:.1f}% consumed ({100-soc_pickup:.1f}% waste)" if soc_cat and soc_cat["total_records"] > 0 else "No Event Data"
+
+        takeaway = (
+            f"Observed pickup in {cat_label}: Corporate ({corp_pickup:.0f}%), Wedding ({wed_pickup:.0f}%), Social ({soc_pickup:.0f}%)."
+            if (corp_cat and corp_cat["total_records"] > 0) or (wed_cat and wed_cat["total_records"] > 0)
+            else f"Cross-event comparison for {cat_label} pending additional multi-event banquet records."
+        )
+
+        head_to_head.append({
+            "dish_category": cat_label,
+            "corporate": {"pickup_pct": corp_pickup, "assessment": corp_assess},
+            "wedding": {"pickup_pct": wed_pickup, "assessment": wed_assess},
+            "social": {"pickup_pct": soc_pickup, "assessment": soc_assess},
+            "key_takeaway": takeaway,
+        })
 
     cross_event_comparison = {
         "headline": "Cross-Event Dietary Intelligence: What Different Audiences Eat",
-        "core_finding": "Corporate meeting guests consume 10.6x less food per person (46g/guest, 43.0% pickup) and discard 83% of heavy rice and rich curries, while Wedding banquet guests eat hearty portions (488g/guest, 87.5% pickup) with heavy appetite for Biryani, Paneer, and Desserts.",
+        "core_finding": core_finding,
         "profiles": profiles,
-        "head_to_head_comparisons": head_to_head
+        "head_to_head_comparisons": head_to_head,
     }
 
     # =========================================================================
@@ -1850,6 +1886,7 @@ def get_event_type_analytics(
         d_info = resolve_canonical_dish(r.dish_name)
         c_dish_name = d_info["canonical_name"]
         cat_mapped = map_to_canonical(r.event_type)
+        cat_target = cat_mapped if cat_mapped in canonical_categories else "Custom"
 
         if c_dish_name not in dish_agg_by_cat:
             dish_agg_by_cat[c_dish_name] = {
@@ -1872,8 +1909,8 @@ def get_event_type_analytics(
             }
 
         dish_agg_by_cat[c_dish_name]["matched_aliases"].add(r.dish_name)
-        if cat_mapped in dish_agg_by_cat[c_dish_name]["cat_data"]:
-            cdat = dish_agg_by_cat[c_dish_name]["cat_data"][cat_mapped]
+        if cat_target in dish_agg_by_cat[c_dish_name]["cat_data"]:
+            cdat = dish_agg_by_cat[c_dish_name]["cat_data"][cat_target]
             cdat["records_count"] += 1
             ev_k = r.event_name or f"Shift-{r.record_date}-{r.session}"
             cdat["events"].add(ev_k)

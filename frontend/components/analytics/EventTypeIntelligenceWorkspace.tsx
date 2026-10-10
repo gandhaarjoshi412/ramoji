@@ -1532,17 +1532,25 @@ export const EventTypeIntelligenceWorkspace: React.FC<EventTypeIntelligenceWorks
                       <h4 className="font-serif text-base font-bold text-slate-900 mt-0.5">
                         {profile.title}
                       </h4>
-                      <div className="flex items-center gap-3 text-xs font-semibold text-slate-600 mt-1">
-                        <span className="text-emerald-700 font-bold">
-                          {profile.consumption_rate_pct.toFixed(1)}% Consumed
-                        </span>
-                        <span>•</span>
-                        <span className="text-rose-700 font-bold">
-                          {profile.waste_rate_pct.toFixed(1)}% Waste
-                        </span>
-                        <span>•</span>
-                        <span>{profile.intake_per_guest_g.toFixed(0)}g / Guest</span>
-                      </div>
+                      {profile.has_data !== false && profile.guest_count > 0 ? (
+                        <div className="flex items-center gap-3 text-xs font-semibold text-slate-600 mt-1">
+                          <span className="text-emerald-700 font-bold">
+                            {profile.consumption_rate_pct.toFixed(1)}% Consumed
+                          </span>
+                          <span>•</span>
+                          <span className="text-rose-700 font-bold">
+                            {profile.waste_rate_pct.toFixed(1)}% Waste
+                          </span>
+                          <span>•</span>
+                          <span>{profile.intake_per_guest_g.toFixed(0)}g / Guest</span>
+                        </div>
+                      ) : (
+                        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-600 mt-1">
+                          <span>Baseline Not Established</span>
+                          <span>•</span>
+                          <span>{profile.records_count ?? 0} Banquet Records</span>
+                        </div>
+                      )}
                     </div>
 
                     <p className="text-xs text-slate-600 leading-relaxed font-medium">
