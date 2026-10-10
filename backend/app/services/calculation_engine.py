@@ -49,7 +49,15 @@ def calculate_core_waste_metrics(records: List[Any], pax_override: Optional[int]
     total_consumed_kg = round(sum(float(getattr(r, "actual_consumption_kg", 0.0) or 0.0) for r in records), 2)
     total_kitchen_leftover_kg = round(sum(float(getattr(r, "kitchen_leftover_kg", 0.0) or 0.0) for r in records), 2)
     total_buffet_leftover_kg = round(sum(float(getattr(r, "location_buffet_return_kg", 0.0) or 0.0) for r in records), 2)
-    total_leftover_kg = round(sum(float(getattr(r, "total_leftover_kg", 0.0) or 0.0) for r in records), 2)
+
+    # BUG 1 FIX: Always derive total_leftover from sub-components so kitchen + buffet cards
+    # exactly equal the master leftover figure. Fall back to stored column only when both
+    # sub-components are zero (legacy/Banquet-Sync rows that only carry the total).
+    if total_kitchen_leftover_kg > 0.0 or total_buffet_leftover_kg > 0.0:
+        total_leftover_kg = round(total_kitchen_leftover_kg + total_buffet_leftover_kg, 2)
+    else:
+        total_leftover_kg = round(sum(float(getattr(r, "total_leftover_kg", 0.0) or 0.0) for r in records), 2)
+
     total_reuse_kg = round(sum(float(getattr(r, "reuse_quantity_kg", 0.0) or 0.0) for r in records), 2)
     total_waste_kg = round(sum(float(getattr(r, "total_waste_kg", 0.0) or 0.0) for r in records), 2)
     total_other_disposition_kg = round(sum(float(getattr(r, "other_disposition_kg", 0.0) or 0.0) for r in records), 2)

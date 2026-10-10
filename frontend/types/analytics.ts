@@ -412,7 +412,8 @@ export interface MassBalanceAuditData {
   total_reuse_kg: number;
   total_waste_kg: number;
   total_other_disposition_kg: number;
-  production_variance_kg: number;
+  /** prepared − (consumed + leftover): conservation law check */
+  production_conservation_variance_kg: number;
   leftover_variance_kg: number;
   unaccounted_discrepancy_records: {
     record_id: string | number;

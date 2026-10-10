@@ -216,7 +216,8 @@ def get_analytics_overview(
         if shift_key not in unique_shifts:
             unique_shifts[shift_key] = r.pax or 0
 
-    total_pax = sum(unique_shifts.values()) if unique_shifts else sum(r.pax for r in records)
+    # W1 FIX: fallback to 0 - if no unique shifts exist, no records, so pax = 0.
+    total_pax = sum(unique_shifts.values()) if unique_shifts else 0
 
     # Core Aggregations using centralized calculation engine
     core_metrics = calculate_core_waste_metrics(records, pax_override=total_pax)
@@ -274,9 +275,10 @@ def get_analytics_overview(
         "food_diverted_kg": build_comparison_payload(total_reuse_kg, base["total_reuse_kg"] if base else None),
         "total_waste_cost": build_comparison_payload(total_waste_cost, base["total_waste_cost"] if base else None, is_waste_metric=True),
         "waste_cost_per_guest": build_comparison_payload(waste_cost_per_guest, base["waste_cost_per_guest"] if base else None, is_waste_metric=True),
+        # BUG 5 FIX: Use actual avg food cost per kg derived from records, not a hardcoded ₹150.
         "waste_cost_pct_of_prepared": build_comparison_payload(
-            (total_waste_cost / (total_prepared_kg * 150) * 100) if total_prepared_kg > 0 else 0,
-            (base["total_waste_cost"] / (base["total_prepared_kg"] * 150) * 100) if (base and base["total_prepared_kg"] > 0) else None,
+            (total_waste_cost / total_waste_kg * 100 / (total_prepared_kg / total_waste_kg)) if (total_waste_kg > 0 and total_prepared_kg > 0) else 0,
+            (base["total_waste_cost"] / base["total_waste_kg"] * 100 / (base["total_prepared_kg"] / base["total_waste_kg"])) if (base and base["total_waste_kg"] > 0 and base["total_prepared_kg"] > 0) else None,
             is_waste_metric=True
         ),
         "production_variance_kg": build_comparison_payload(prod_variance_kg, base["production_variance_kg"] if base else None),
@@ -438,8 +440,11 @@ def get_analytics_overview(
         st_map[st_name]["waste_cost"] += r.waste_cost
 
     for (ds, h_name, s_name, ev_name), px in unique_shifts.items():
-        # Match service type
-        rec = next((r for r in records if r.session == s_name and r.hotel_name == h_name), None)
+        # BUG 3 FIX: Match by date + hotel + session to avoid cross-date first-match contamination
+        rec = next(
+            (r for r in records if str(r.record_date) == ds and r.hotel_name == h_name and r.session == s_name),
+            None
+        )
         if rec and rec.service_type in st_map:
             st_map[rec.service_type]["pax"] += px
 
@@ -461,6 +466,7 @@ def get_analytics_overview(
         })
 
     # Event Performance
+    # BUG 6 FIX: Track max observed pax per event (not just first-record pax)
     ev_map: Dict[str, Dict[str, Any]] = {}
     for r in records:
         ev_key = r.event_name or f"{r.hotel_name} - {r.session}"
@@ -473,7 +479,7 @@ def get_analytics_overview(
                 "event_date": str(r.record_date),
                 "event_type": r.event_type or "Regular Hotel Service",
                 "service_type": r.service_type,
-                "pax": r.pax,
+                "pax": r.pax or 0,  # will be updated to max below
                 "estimated_kg": 0.0,
                 "actual_production_kg": 0.0,
                 "consumption_kg": 0.0,
@@ -482,6 +488,9 @@ def get_analytics_overview(
                 "waste_kg": 0.0,
                 "waste_cost": 0.0,
             }
+        # Use the maximum pax seen across any dish row for this event (most reliable)
+        if (r.pax or 0) > ev_map[ev_key]["pax"]:
+            ev_map[ev_key]["pax"] = r.pax
         ev_map[ev_key]["estimated_kg"] += float(r.estimated_production_kg or r.actual_production_kg or 0.0)
         ev_map[ev_key]["actual_production_kg"] += float(r.actual_production_kg or 0.0)
         ev_map[ev_key]["consumption_kg"] += float(r.actual_consumption_kg or 0.0)
@@ -606,7 +615,10 @@ def get_analytics_overview(
                 w_kg = sum(r.total_waste_kg for r in matching)
                 prep_kg = sum(r.actual_production_kg for r in matching)
                 cost = sum(r.waste_cost for r in matching)
-                px = sum(r.pax for r in matching) / len(matching)
+                # BUG 7 FIX: Use the shift-level pax from unique_shifts lookup, not an average
+                # across dish rows (which is always the same value repeated, not a true average).
+                shift_key = (dt, matching[0].hotel_name, s, matching[0].event_name)
+                px = unique_shifts.get(shift_key, 0) or max((r.pax or 0) for r in matching)
                 pct = (w_kg / prep_kg * 100) if prep_kg > 0 else 0
                 heatmap.append({
                     "day_or_date": dt,
@@ -651,11 +663,17 @@ def get_analytics_overview(
     # Financial Impact & Savings Simulator
     monthly_waste_est = round(total_waste_cost * 30.0 / max(1, len(dates_present)), 2)
     annual_waste_est = round(total_waste_cost * 365.0 / max(1, len(dates_present)), 2)
+    # BUG 4 FIX: Derive avg food cost per kg from actual item_cost records, not hardcoded ₹85.
+    actual_item_cost_records = [r for r in records if (r.item_cost or 0.0) > 0]
+    avg_food_cost_per_kg = (
+        sum(r.item_cost for r in actual_item_cost_records) / len(actual_item_cost_records)
+        if actual_item_cost_records else 121.0  # fallback benchmark only if truly no cost data
+    )
     financial_impact = {
         "total_waste_cost": round(total_waste_cost, 2),
         "waste_cost_per_guest": round(waste_cost_per_guest, 2),
         "waste_cost_per_kg": round((total_waste_cost / total_waste_kg) if total_waste_kg > 0 else 0, 2),
-        "cost_consumed_per_guest": round(((total_consumed_kg * 85.0) / total_pax) if total_pax > 0 else 0, 2),
+        "cost_consumed_per_guest": round((total_consumed_kg * avg_food_cost_per_kg / total_pax) if total_pax > 0 else 0, 2),
         "monthly_estimate_inr": monthly_waste_est,
         "annualized_estimate_inr": annual_waste_est,
         "projection_disclaimer": "Annualized calculations represent run-rate projections based on recorded banquet service shifts.",
@@ -739,6 +757,8 @@ def get_analytics_overview(
         }
 
     # Food Mass-Balance Audit (strict law of conservation of mass across culinary pipeline)
+    # BUG 2 FIX: Renamed production_variance_kg → production_conservation_variance_kg here
+    # to avoid collision with the KPI field (prepared - estimated) of the same name.
     mass_balance_audit = {
         "is_reconciled": core_metrics["mass_balance_reconciled"],
         "total_prepared_kg": core_metrics["total_prepared_kg"],
@@ -747,7 +767,9 @@ def get_analytics_overview(
         "total_reuse_kg": core_metrics["total_reuse_kg"],
         "total_waste_kg": core_metrics["total_waste_kg"],
         "total_other_disposition_kg": core_metrics["total_other_disposition_kg"],
-        "production_variance_kg": core_metrics["production_reconciliation_variance_kg"],
+        # production_conservation_variance = prepared - (consumed + leftover) [law of mass]
+        "production_conservation_variance_kg": core_metrics["production_reconciliation_variance_kg"],
+        # leftover_variance = leftover - (reused + waste + other) [disposition ledger]
         "leftover_variance_kg": core_metrics["leftover_reconciliation_variance_kg"],
         "unaccounted_discrepancy_records": core_metrics["discrepancy_records"][:15],
         "audit_note": (
@@ -1131,6 +1153,24 @@ def get_event_type_analytics(
         query = query.filter(AnalyticsRecord.hotel_name == hotel)
 
     today = date.today()
+    # BUG 8 FIX: Pre-compute ALL date boundaries unconditionally so both the records filter
+    # and the event_query filter below can safely reference them without implicit scope dependency.
+    week_start = today - timedelta(days=today.weekday())
+    prev_week_end = today - timedelta(days=today.weekday() + 1)
+    prev_week_start = prev_week_end - timedelta(days=6)
+    first_day = today.replace(day=1)
+    _first_this = today.replace(day=1)
+    prev_month_end = _first_this - timedelta(days=1)
+    first_prev = prev_month_end.replace(day=1)
+    s_d = None
+    e_d = None
+    if date_preset == "custom" and start_date and end_date:
+        try:
+            s_d = datetime.strptime(start_date, "%Y-%m-%d").date()
+            e_d = datetime.strptime(end_date, "%Y-%m-%d").date()
+        except Exception:
+            pass
+
     if date_preset == "today":
         query = query.filter(AnalyticsRecord.record_date == today)
     elif date_preset == "yesterday":
@@ -1140,27 +1180,15 @@ def get_event_type_analytics(
     elif date_preset == "last_30":
         query = query.filter(AnalyticsRecord.record_date >= today - timedelta(days=30), AnalyticsRecord.record_date <= today)
     elif date_preset == "this_week":
-        week_start = today - timedelta(days=today.weekday())
         query = query.filter(AnalyticsRecord.record_date >= week_start, AnalyticsRecord.record_date <= today)
     elif date_preset == "previous_week":
-        prev_week_end = today - timedelta(days=today.weekday() + 1)
-        prev_week_start = prev_week_end - timedelta(days=6)
         query = query.filter(AnalyticsRecord.record_date >= prev_week_start, AnalyticsRecord.record_date <= prev_week_end)
     elif date_preset == "this_month":
-        first_day = today.replace(day=1)
         query = query.filter(AnalyticsRecord.record_date >= first_day, AnalyticsRecord.record_date <= today)
     elif date_preset == "previous_month":
-        first_this = today.replace(day=1)
-        prev_month_end = first_this - timedelta(days=1)
-        first_prev = prev_month_end.replace(day=1)
         query = query.filter(AnalyticsRecord.record_date >= first_prev, AnalyticsRecord.record_date <= prev_month_end)
-    elif date_preset == "custom" and start_date and end_date:
-        try:
-            s_d = datetime.strptime(start_date, "%Y-%m-%d").date()
-            e_d = datetime.strptime(end_date, "%Y-%m-%d").date()
-            query = query.filter(AnalyticsRecord.record_date >= s_d, AnalyticsRecord.record_date <= e_d)
-        except Exception:
-            pass
+    elif date_preset == "custom" and s_d and e_d:
+        query = query.filter(AnalyticsRecord.record_date >= s_d, AnalyticsRecord.record_date <= e_d)
 
     records = query.all()
 
@@ -1188,11 +1216,8 @@ def get_event_type_analytics(
         event_query = event_query.filter(Event.event_date >= first_day, Event.event_date <= today)
     elif date_preset == "previous_month":
         event_query = event_query.filter(Event.event_date >= first_prev, Event.event_date <= prev_month_end)
-    elif date_preset == "custom" and start_date and end_date:
-        try:
-            event_query = event_query.filter(Event.event_date >= s_d, Event.event_date <= e_d)
-        except Exception:
-            pass
+    elif date_preset == "custom" and s_d and e_d:
+        event_query = event_query.filter(Event.event_date >= s_d, Event.event_date <= e_d)
 
     events_in_db = event_query.all()
 
